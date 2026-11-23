@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-acc-hotkey"
+description = "Enables the acc_hotkey command without any pre-configured scope."
+commands.allow = ["acc_hotkey"]
+
+[[permission]]
+identifier = "deny-acc-hotkey"
+description = "Denies the acc_hotkey command without any pre-configured scope."
+commands.deny = ["acc_hotkey"]

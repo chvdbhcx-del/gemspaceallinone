@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.Gemspace" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="colorPrimary">#3AA0FF</item>
+        <item name="colorAccent">#3AA0FF</item>
+        <item name="android:windowBackground">@color/bar</item>
+    </style>
+</resources>

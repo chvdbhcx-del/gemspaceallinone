@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-acc-notify"
+description = "Enables the acc_notify command without any pre-configured scope."
+commands.allow = ["acc_notify"]
+
+[[permission]]
+identifier = "deny-acc-notify"
+description = "Denies the acc_notify command without any pre-configured scope."
+commands.deny = ["acc_notify"]
