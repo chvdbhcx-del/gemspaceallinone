@@ -71,7 +71,23 @@ class MainActivity : AppCompatActivity() {
     private val feed = Feed()
     /** The chat list each account's page shows (read only, shared/chats.js), for "Все чаты". */
     private val chats = mutableMapOf<String, List<ChatRow>>()
-    private var feedTab = "new"
+    private var feedTab = "all"
+    private var listOpen = false
+    /** a chat opened from "Все чаты": Back returns to the list */
+    private var backToList = false
+    private var listQuery = ""
+    private var chatFilter: String? = null
+    private var listRefreshPending = false
+    private val listShown = HashSet<String>()
+    private lateinit var listPanel: LinearLayout
+    private lateinit var listTabs: FrameLayout
+    private lateinit var listSearch: EditText
+    private lateinit var listChips: LinearLayout
+    private lateinit var listRows: LinearLayout
+    private lateinit var listScroll: ScrollView
+    private val avatars = android.util.LruCache<String, android.graphics.Bitmap>(120)
+    private val avatarsFailed = HashSet<String>()
+    private val avatarPool by lazy { java.util.concurrent.Executors.newFixedThreadPool(3) }
     private lateinit var feedSlot: FrameLayout
     private var shownFeed = 0
     private var resumed = false
@@ -133,6 +149,8 @@ class MainActivity : AppCompatActivity() {
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
+                if (listOpen) { closeList(); return }
+                if (backToList) { openList(); return }
                 val wv = store.active?.let { views[it] }
                 if (wv != null && wv.canGoBack()) wv.goBack() else moveTaskToBack(true)
             }
@@ -241,7 +259,7 @@ class MainActivity : AppCompatActivity() {
             }
             val rowParams = { LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(8) } }
             addView(feature(R.drawable.ic_shield, "Отдельный вход", "У каждого аккаунта свои данные, как в разных браузерах"), rowParams())
-            addView(feature(R.drawable.ic_feed, "Общая лента", "Новые сообщения всех аккаунтов в одном списке"), rowParams())
+            addView(feature(R.drawable.ic_chats, "Все чаты", "Чаты всех аккаунтов в одном списке, как в одном мессенджере"), rowParams())
             addView(feature(R.drawable.ic_bell, "Уведомления", "С именем аккаунта, даже когда приложение закрыто"), rowParams())
             addView(feature(R.drawable.ic_moon, "Бережёт память", "Давно не открытые аккаунты засыпают сами"), rowParams())
             addView(TextView(context).apply {
@@ -264,6 +282,7 @@ class MainActivity : AppCompatActivity() {
             })
         }
         pages.addView(welcome, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        buildList()
         root.addView(pages, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         setContentView(root)
 
@@ -324,15 +343,20 @@ class MainActivity : AppCompatActivity() {
         setOnClickListener { onClick() }
     }
 
-    /** The feed button left of the accounts, shaped like an account tile, with the count of new messages. */
+    /** The "Все чаты" button left of the accounts, shaped like an account tile, with the count of unread chats. */
     private fun renderFeedTile() {
         feedSlot.removeAllViews()
         val accent = ContextCompat.getColor(this@MainActivity, R.color.accent)
-        val n = feed.size
-        val tile = tileFrame("Лента").apply { setOnClickListener { openFeed() } }
+        val n = unreadChats().takeIf { it > 0 } ?: feed.size
+        val tile = tileFrame("Все чаты").apply { setOnClickListener { if (listOpen) closeList() else openList() } }
+        if (listOpen) tile.addView(View(this).apply {
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setStroke(dp(2), accent) }
+        }, FrameLayout.LayoutParams(dp(RING_SIZE), dp(RING_SIZE), Gravity.CENTER_HORIZONTAL or Gravity.TOP).apply {
+            topMargin = dp(AVATAR_TOP - (RING_SIZE - AVATAR_SIZE) / 2)
+        })
         tile.addView(ImageView(this).apply {
-            setImageResource(R.drawable.ic_feed)
-            setColorFilter(if (n > 0) accent else ContextCompat.getColor(context, R.color.muted))
+            setImageResource(R.drawable.ic_chats)
+            setColorFilter(if (n > 0 || listOpen) accent else ContextCompat.getColor(context, R.color.muted))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             setPadding(dp(11), dp(11), dp(11), dp(11))
             background = GradientDrawable().apply {
@@ -340,7 +364,7 @@ class MainActivity : AppCompatActivity() {
                 setStroke(dp(1), ContextCompat.getColor(context, R.color.line))
             }
         }, iconParams())
-        tile.addView(tileLabel("Лента", false), labelParams())
+        tile.addView(tileLabel("Все чаты", listOpen), labelParams())
         if (n > 0) {
             val avatarRight = (TILE_W + AVATAR_SIZE) / 2
             tile.addView(TextView(this).apply {
@@ -368,58 +392,313 @@ class MainActivity : AppCompatActivity() {
         feedSlot.addView(tile)
     }
 
+    private fun unreadChats() = store.accounts.sumOf { a -> (chats[a.id] ?: emptyList()).count { it.unread > 0 } }
+
     private fun feedTime(ms: Long): String {
         val today = android.text.format.DateUtils.isToday(ms)
         val f = if (today) "HH:mm" else "d MMM, HH:mm"
         return java.text.SimpleDateFormat(f, java.util.Locale.forLanguageTag("ru")).format(java.util.Date(ms))
     }
 
-    /** The shared feed: new messages of every account, newest first. A row opens the chat in its account. */
-    private fun openFeed(tab: String = feedTab) {
-        feedTab = tab
-        val items = feed.items().filter { store.find(it.account) != null }
+    // ---------- "Все чаты": one chat list of all accounts over the page, like Hivogram ----------
+
+    /** Builds the list screen once: tabs, search, filter chips and the rows. It lies over the page area. */
+    private fun buildList() {
         val fg = ContextCompat.getColor(this, R.color.fg)
         val muted = ContextCompat.getColor(this, R.color.muted)
-        val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(8), dp(4), dp(8), dp(8)) }
-        lateinit var dialog: AlertDialog
-        val tabs = listOf("new", "all")
-        list.addView(segmented(listOf("Новые сообщения", "Все чаты"), tabs.indexOf(tab)) { i ->
-            if (tabs[i] != tab) list.postDelayed({ dialog.dismiss(); openFeed(tabs[i]) }, 180)
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)).apply { bottomMargin = dp(10) })
-        if (tab == "all") {
-            addChatRows(list) { dialog.dismiss() }
-        } else if (items.isEmpty()) {
-            list.addView(TextView(this).apply {
-                text = "Новых сообщений нет. Здесь появятся сообщения всех аккаунтов, как только придут."
-                setTextColor(muted); setPadding(dp(16), dp(12), dp(16), dp(12))
+        listPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(ContextCompat.getColor(context, R.color.page))
+            visibility = View.GONE
+            isClickable = true // touches never fall through to the page under it
+        }
+        listTabs = FrameLayout(this)
+        listPanel.addView(listTabs, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)).apply {
+            setMargins(dp(12), dp(10), dp(12), dp(8))
+        })
+        listSearch = EditText(this).apply {
+            hint = "Поиск по чатам"; textSize = 15f; typeface = fontBold; setTextColor(fg); setHintTextColor(muted)
+            isSingleLine = true; inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            setPadding(dp(14), 0, dp(14), 0)
+            setCompoundDrawablesRelativeWithIntrinsicBounds(ContextCompat.getDrawable(context, R.drawable.ic_search)?.mutate()?.apply { setTint(muted) }, null, null, null)
+            compoundDrawablePadding = dp(8)
+            background = GradientDrawable().apply {
+                cornerRadius = dp(20).toFloat(); setColor(ContextCompat.getColor(context, R.color.card))
+                setStroke(dp(1), ContextCompat.getColor(context, R.color.line))
+            }
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(t: CharSequence?, s: Int, c: Int, n: Int) {}
+                override fun onTextChanged(t: CharSequence?, s: Int, b: Int, c: Int) {}
+                override fun afterTextChanged(e: android.text.Editable?) { listQuery = e?.toString().orEmpty(); fillList() }
             })
         }
-        if (tab == "new") for (item in items) {
+        listPanel.addView(listSearch, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)).apply {
+            setMargins(dp(12), 0, dp(12), dp(8))
+        })
+        listChips = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(dp(12), 0, dp(12), 0) }
+        listPanel.addView(HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(listChips)
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(4) })
+        listRows = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(4), 0, dp(4), dp(12)) }
+        listScroll = ScrollView(this).apply { addView(listRows) }
+        listPanel.addView(listScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        pages.addView(listPanel, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+    }
+
+    private fun openList() {
+        if (store.accounts.isEmpty()) return
+        listOpen = true
+        backToList = false
+        listShown.clear()
+        listPanel.visibility = View.VISIBLE
+        listPanel.bringToFront()
+        listPanel.alpha = 0f; listPanel.translationY = dp(12).toFloat()
+        listPanel.animate().alpha(1f).translationY(0f).setDuration(200)
+            .setInterpolator(android.view.animation.DecelerateInterpolator(2f)).start()
+        fillList()
+        render()
+    }
+
+    private fun closeList() {
+        if (!listOpen) return
+        listOpen = false
+        hideKeyboard()
+        listPanel.animate().alpha(0f).setDuration(150).withEndAction { if (!listOpen) listPanel.visibility = View.GONE }.start()
+        render()
+    }
+
+    private fun hideKeyboard() {
+        (getSystemService(INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager)
+            ?.hideSoftInputFromWindow(listSearch.windowToken, 0)
+        listSearch.clearFocus()
+    }
+
+    /** Refills the open list after new chats or messages arrive, at most a few times a second. */
+    private fun refreshList() {
+        if (!listOpen || listRefreshPending) return
+        listRefreshPending = true
+        listPanel.postDelayed({ listRefreshPending = false; if (listOpen) fillList() }, 300)
+    }
+
+    private fun chip(text: String, count: Int, dot: Int?, on: Boolean, onClick: () -> Unit) = TextView(this).apply {
+        val fg = ContextCompat.getColor(context, R.color.fg)
+        val muted = ContextCompat.getColor(context, R.color.muted)
+        val accent = ContextCompat.getColor(context, R.color.accent)
+        val sb = android.text.SpannableStringBuilder()
+        if (dot != null) { sb.append("● "); sb.setSpan(android.text.style.ForegroundColorSpan(dot), 0, 1, 0) }
+        sb.append(text)
+        if (count > 0) {
+            val s = sb.length
+            sb.append("  ").append(count.toString())
+            sb.setSpan(android.text.style.ForegroundColorSpan(fg), s, sb.length, 0)
+        }
+        this.text = sb
+        textSize = 13f; typeface = fontHeavy; setTextColor(if (on) fg else muted)
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(12), 0, dp(12), 0)
+        background = GradientDrawable().apply {
+            cornerRadius = dp(16).toFloat()
+            setColor(if (on) (accent and 0x00FFFFFF) or 0x29000000 else ContextCompat.getColor(context, R.color.card))
+            setStroke(dp(1), if (on) accent else ContextCompat.getColor(context, R.color.line))
+        }
+        setOnClickListener { onClick() }
+    }
+
+    private fun addChip(v: View) = listChips.addView(v, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)).apply { marginEnd = dp(6) })
+
+    private fun fillList() {
+        val tabs = listOf("all", "new")
+        listTabs.removeAllViews()
+        val feedN = feed.size
+        listTabs.addView(segmented(listOf("Все чаты", if (feedN > 0) "Лента · $feedN" else "Лента"), tabs.indexOf(feedTab)) { i ->
+            if (tabs[i] != feedTab) listPanel.postDelayed({ feedTab = tabs[i]; listShown.clear(); listScroll.scrollTo(0, 0); fillList() }, 180)
+        }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        listSearch.visibility = if (feedTab == "all") View.VISIBLE else View.GONE
+        listChips.removeAllViews()
+        listRows.removeAllViews()
+        if (feedTab == "all") fillChats() else fillFeed()
+        // only rows that were not on screen before slide in
+        var k = 0
+        for (i in 0 until listRows.childCount) {
+            val v = listRows.getChildAt(i)
+            val key = v.tag as? String ?: continue
+            if (listShown.add(key)) {
+                v.alpha = 0f; v.translationY = dp(10).toFloat()
+                v.animate().alpha(1f).translationY(0f).setStartDelay(30L * (k++).coerceAtMost(10)).setDuration(280)
+                    .setInterpolator(android.view.animation.DecelerateInterpolator(2f)).start()
+            }
+        }
+    }
+
+    private fun fillChats() {
+        val muted = ContextCompat.getColor(this, R.color.muted)
+        if (chatFilter != null && chatFilter != UNREAD && store.find(chatFilter!!) == null) chatFilter = null
+        val all = store.accounts.flatMap { a -> (chats[a.id] ?: emptyList()).mapIndexed { i, c -> Triple(a, c, i) } }
+            .sortedWith(compareByDescending<Triple<Account, ChatRow, Int>> { ChatRow.timeOf(it.second.time) }.thenBy { it.third })
+        val unreadN = all.count { it.second.unread > 0 }
+        addChip(chip("Все", 0, null, chatFilter == null) { chatFilter = null; fillList() })
+        addChip(chip("Непрочитанные", unreadN, null, chatFilter == UNREAD) { chatFilter = UNREAD; fillList() })
+        for (a in store.accounts) addChip(chip(a.name, 0, a.color, chatFilter == a.id) { chatFilter = a.id; fillList() })
+        val q = listQuery.trim().lowercase()
+        val rows = all.filter { (a, c, _) ->
+            (chatFilter == null || (chatFilter == UNREAD && c.unread > 0) || chatFilter == a.id) &&
+                (q.isEmpty() || c.name.lowercase().contains(q) || c.preview.lowercase().contains(q))
+        }
+        if (rows.isEmpty()) {
+            listRows.addView(TextView(this).apply {
+                text = when {
+                    all.isEmpty() -> "Список чатов ещё не загрузился. Он появится, когда откроются страницы аккаунтов."
+                    q.isNotEmpty() -> "Ничего не нашлось."
+                    chatFilter == UNREAD -> "Всё прочитано."
+                    else -> "У этого аккаунта пока нет чатов в списке."
+                }
+                setTextColor(muted); setPadding(dp(16), dp(20), dp(16), dp(12)); gravity = Gravity.CENTER
+            })
+        }
+        for ((a, c, _) in rows) listRows.addView(chatRow(a, c), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        val missing = store.accounts.filter { chats[it.id].isNullOrEmpty() }
+        listRows.addView(TextView(this).apply {
+            text = (if (missing.isNotEmpty() && all.isNotEmpty()) "Пока без списка: ${missing.joinToString(", ") { it.name }}. " else "") +
+                "Hovi Space только читает список, который показывает страница Gem Space, и никуда его не отправляет."
+            textSize = 12f; setTextColor(muted); setPadding(dp(12), dp(12), dp(12), 0)
+        })
+    }
+
+    /** A row like Gem Space's own list: the chat's picture with the account's dot, name, time, last message, unread count. */
+    private fun chatRow(a: Account, c: ChatRow): View {
+        val fg = ContextCompat.getColor(this, R.color.fg)
+        val muted = ContextCompat.getColor(this, R.color.muted)
+        val accent = ContextCompat.getColor(this, R.color.accent)
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            minimumHeight = dp(68)
+            tag = "c:${a.id}:${c.name}"
+            background = android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(ContextCompat.getColor(context, R.color.line)), null,
+                GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(Color.WHITE) })
+            setOnClickListener {
+                closeList()
+                backToList = true
+                openChat(a.id, c.name)
+            }
+        }
+        val ava = FrameLayout(this)
+        val circle = TextView(this).apply {
+            text = Store.initials(c.name.replace(Regex("[^\\p{L}\\p{N}\\s]"), " ").trim().ifEmpty { c.name })
+            textSize = 16f; setTextColor(Color.WHITE); typeface = fontHeavy; gravity = Gravity.CENTER
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(chatColor(c.name)) }
+        }
+        ava.addView(circle, FrameLayout.LayoutParams(dp(50), dp(50)))
+        if (c.avatar.isNotEmpty()) {
+            val img = ImageView(this).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                clipToOutline = true
+                background = GradientDrawable().apply { shape = GradientDrawable.OVAL }
+            }
+            ava.addView(img, FrameLayout.LayoutParams(dp(50), dp(50)))
+            loadAvatar(c.avatar, img)
+        }
+        ava.addView(TextView(this).apply {
+            text = Store.initials(a.name).take(1); textSize = 9.5f; setTextColor(Color.WHITE); typeface = fontHeavy; gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL; setColor(a.color)
+                setStroke(dp(2), ContextCompat.getColor(context, R.color.page))
+            }
+        }, FrameLayout.LayoutParams(dp(21), dp(21), Gravity.END or Gravity.BOTTOM))
+        row.addView(ava, LinearLayout.LayoutParams(dp(54), dp(54)).apply { marginEnd = dp(10) })
+        val texts = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        top.addView(TextView(this).apply {
+            text = c.name; textSize = 16f; typeface = fontHeavy; setTextColor(fg); maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        top.addView(TextView(this).apply {
+            text = c.time; textSize = 12f; setTextColor(if (c.unread > 0) accent else muted); setPadding(dp(8), 0, 0, 0)
+            if (c.unread > 0) typeface = fontBold
+        })
+        texts.addView(top)
+        val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        bottom.addView(TextView(this).apply {
+            text = c.preview.ifEmpty { if (c.unread > 0) "Новое сообщение" else "" }
+            textSize = 14.5f; setTextColor(muted); maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        if (c.unread > 0) bottom.addView(TextView(this).apply {
+            text = if (c.unread > 999) "999+" else c.unread.toString()
+            textSize = 11f; typeface = fontHeavy; setTextColor(Color.WHITE); gravity = Gravity.CENTER
+            setPadding(dp(6), 0, dp(6), 0); minWidth = dp(20)
+            background = GradientDrawable().apply { cornerRadius = dp(10).toFloat(); setColor(accent) }
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(20)).apply { marginStart = dp(8) })
+        texts.addView(bottom, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(2) })
+        row.addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        return row
+    }
+
+    /** Chats without a picture get a colour from their name; the account is shown by the dot. */
+    private fun chatColor(name: String): Int {
+        var h = 0L
+        for (ch in name) h = (h * 31 + ch.code) and 0xFFFFFFFFL
+        return Color.parseColor(CHAT_COLORS[(h % CHAT_COLORS.size).toInt()])
+    }
+
+    /** Chat pictures come from Gem Space's https links; a picture that fails to load leaves the initials. */
+    private fun loadAvatar(url: String, into: ImageView) {
+        into.tag = url
+        avatars[url]?.let { into.setImageBitmap(it); return }
+        if (url in avatarsFailed) return
+        avatarPool.execute {
+            val bmp = try {
+                val con = java.net.URL(url).openConnection() as javax.net.ssl.HttpsURLConnection
+                con.connectTimeout = 8000; con.readTimeout = 8000
+                con.inputStream.use { android.graphics.BitmapFactory.decodeStream(it) }
+                    ?.let { android.graphics.Bitmap.createScaledBitmap(it, dp(50), dp(50) * it.height / maxOf(1, it.width), true) }
+            } catch (e: Exception) { null }
+            runOnUiThread {
+                if (bmp == null) { avatarsFailed += url; return@runOnUiThread }
+                avatars.put(url, bmp)
+                if (into.tag == url) into.setImageBitmap(bmp)
+            }
+        }
+    }
+
+    private fun fillFeed() {
+        val fg = ContextCompat.getColor(this, R.color.fg)
+        val muted = ContextCompat.getColor(this, R.color.muted)
+        val accent = ContextCompat.getColor(this, R.color.accent)
+        val items = feed.items().filter { store.find(it.account) != null }
+        if (items.isNotEmpty()) {
+            addChip(chip("Очистить", 0, null, false) { feed.clear(null); render(); fillList() })
+        }
+        if (items.isEmpty()) {
+            listRows.addView(TextView(this).apply {
+                text = "Новых сообщений нет. Здесь появятся сообщения всех аккаунтов, как только придут."
+                setTextColor(muted); setPadding(dp(16), dp(20), dp(16), dp(12)); gravity = Gravity.CENTER
+            })
+        }
+        for (item in items) {
             val a = store.find(item.account) ?: continue
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
-                setPadding(dp(12), dp(10), dp(12), dp(10))
-                background = GradientDrawable().apply {
-                    cornerRadius = dp(14).toFloat()
-                    setColor(ContextCompat.getColor(context, R.color.card))
-                    setStroke(dp(1), ContextCompat.getColor(context, R.color.line))
-                }
-                isClickable = true
-                isFocusable = true
-                setOnClickListener {
-                    dialog.dismiss()
-                    openFeedItem(item.key)
-                }
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(10), dp(8), dp(10), dp(8))
+                tag = "f:${item.key}"
+                background = android.graphics.drawable.RippleDrawable(
+                    android.content.res.ColorStateList.valueOf(ContextCompat.getColor(context, R.color.line)), null,
+                    GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(Color.WHITE) })
+                setOnClickListener { closeList(); backToList = true; openFeedItem(item.key) }
             }
             row.addView(TextView(this).apply {
-                text = Store.initials(a.name); textSize = 14f; setTextColor(Color.WHITE); typeface = fontHeavy
+                text = Store.initials(a.name); textSize = 16f; setTextColor(Color.WHITE); typeface = fontHeavy
                 gravity = Gravity.CENTER
                 background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(a.color) }
-            }, LinearLayout.LayoutParams(dp(40), dp(40)).apply { marginEnd = dp(12) })
+            }, LinearLayout.LayoutParams(dp(50), dp(50)).apply { marginEnd = dp(14) })
             val texts = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             top.addView(TextView(this).apply {
-                text = a.name; textSize = 12f; typeface = fontHeavy; setTextColor(ContextCompat.getColor(this@MainActivity, R.color.accent)); maxLines = 1
+                text = a.name; textSize = 12f; typeface = fontHeavy; setTextColor(accent); maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             top.addView(TextView(this).apply { text = feedTime(item.time); textSize = 12f; setTextColor(muted) })
@@ -429,97 +708,16 @@ class MainActivity : AppCompatActivity() {
                 ellipsize = android.text.TextUtils.TruncateAt.END
             })
             if (item.body.isNotEmpty()) texts.addView(TextView(this).apply {
-                text = item.body; textSize = 14f; setTextColor(muted); maxLines = 2
+                text = item.body; textSize = 14f; setTextColor(muted); maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
             })
             row.addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            list.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                bottomMargin = dp(6)
-            })
+            listRows.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
-        list.addView(TextView(this).apply {
-            text = if (tab == "all") "Чаты всех аккаунтов, свежие сверху. Hovi Space только читает список, который показывает страница Gem Space, и никуда его не отправляет. У спящих аккаунтов показан последний известный список."
-            else "Лента собирается из уведомлений аккаунтов, пока Hovi Space работает. Спящие аккаунты сюда не пишут. Ответить можно в самом чате."
-            textSize = 12f; setTextColor(muted); setPadding(dp(8), dp(6), dp(8), 0)
+        listRows.addView(TextView(this).apply {
+            text = "Лента собирается из уведомлений аккаунтов, пока Hovi Space работает. Спящие аккаунты сюда не пишут. Сообщения аккаунта уходят из ленты, когда в нём всё прочитано."
+            textSize = 12f; setTextColor(muted); setPadding(dp(12), dp(12), dp(12), 0)
         })
-        // rows slide in one after another, like the welcome screen
-        for (i in 0 until list.childCount) {
-            val v = list.getChildAt(i)
-            v.alpha = 0f; v.translationY = dp(10).toFloat()
-            v.animate().alpha(1f).translationY(0f).setStartDelay(35L * i.coerceAtMost(10) + 80).setDuration(300)
-                .setInterpolator(android.view.animation.DecelerateInterpolator(2f)).start()
-        }
-        val b = AlertDialog.Builder(this)
-            .setTitle("Лента")
-            .setView(ScrollView(this).apply { addView(list) })
-            .setNegativeButton("Закрыть", null)
-        if (tab == "new" && items.isNotEmpty()) b.setNeutralButton("Очистить") { _, _ -> feed.clear(null); render() }
-        dialog = b.show()
-    }
-
-    /** Rows of "Все чаты": every account's chats merged by the time Gem Space shows, unread ones marked. */
-    private fun addChatRows(list: LinearLayout, close: () -> Unit) {
-        val fg = ContextCompat.getColor(this, R.color.fg)
-        val muted = ContextCompat.getColor(this, R.color.muted)
-        val accent = ContextCompat.getColor(this, R.color.accent)
-        val rows = store.accounts.flatMap { a -> (chats[a.id] ?: emptyList()).mapIndexed { i, c -> Triple(a, c, i) } }
-            .sortedWith(compareByDescending<Triple<Account, ChatRow, Int>> { ChatRow.timeOf(it.second.time) }.thenBy { it.third })
-        if (rows.isEmpty()) {
-            list.addView(TextView(this).apply {
-                text = "Список чатов ещё не загрузился. Он появится, когда откроются страницы аккаунтов."
-                setTextColor(muted); setPadding(dp(16), dp(12), dp(16), dp(12))
-            })
-            return
-        }
-        for ((a, c, _) in rows) {
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(12), dp(9), dp(12), dp(9))
-                background = GradientDrawable().apply {
-                    cornerRadius = dp(14).toFloat()
-                    setColor(ContextCompat.getColor(context, R.color.card))
-                    setStroke(dp(1), ContextCompat.getColor(context, R.color.line))
-                }
-                setOnClickListener { close(); openChat(a.id, c.name) }
-            }
-            row.addView(TextView(this).apply {
-                text = Store.initials(c.name.replace(Regex("[^\\p{L}\\p{N}\\s]"), " ").trim().ifEmpty { c.name })
-                textSize = 14f; setTextColor(Color.WHITE); typeface = fontHeavy; gravity = Gravity.CENTER
-                background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(a.color) }
-            }, LinearLayout.LayoutParams(dp(40), dp(40)).apply { marginEnd = dp(12) })
-            val texts = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-            val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-            top.addView(TextView(this).apply {
-                text = c.name; textSize = 15f; typeface = fontHeavy; setTextColor(fg); maxLines = 1
-                ellipsize = android.text.TextUtils.TruncateAt.END
-            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            top.addView(TextView(this).apply { text = c.time; textSize = 12f; setTextColor(muted); setPadding(dp(8), 0, 0, 0) })
-            texts.addView(top)
-            val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-            bottom.addView(TextView(this).apply {
-                text = c.preview.ifEmpty { if (c.unread > 0) "Новое сообщение" else "" }
-                textSize = 14f; setTextColor(muted); maxLines = 1
-                ellipsize = android.text.TextUtils.TruncateAt.END
-            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            if (c.unread > 0) bottom.addView(TextView(this).apply {
-                text = if (c.unread > 999) "999+" else c.unread.toString()
-                textSize = 11f; typeface = fontHeavy; setTextColor(Color.WHITE); gravity = Gravity.CENTER
-                setPadding(dp(6), 0, dp(6), 0); minWidth = dp(20)
-                background = GradientDrawable().apply { cornerRadius = dp(10).toFloat(); setColor(accent) }
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(20)).apply { marginStart = dp(8) })
-            texts.addView(bottom)
-            texts.addView(TextView(this).apply {
-                text = "● ${a.name}"; textSize = 11.5f; typeface = fontBold; setTextColor(muted)
-                val sp = android.text.SpannableString(text)
-                sp.setSpan(android.text.style.ForegroundColorSpan(a.color), 0, 1, 0)
-                text = sp
-            })
-            row.addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            list.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                bottomMargin = dp(6)
-            })
-        }
     }
 
     /** Opens a chat of "Все чаты": switches to its account and clicks the chat's row in the page. */
@@ -577,9 +775,10 @@ class MainActivity : AppCompatActivity() {
         strip.removeAllViews()
         val accent = ContextCompat.getColor(this@MainActivity, R.color.accent)
         for (a in store.accounts) {
-            val active = a.id == store.active
+            // while "Все чаты" is open, its tile is the chosen one
+            val active = a.id == store.active && !listOpen
             val tile = tileFrame(a.name).apply {
-                setOnClickListener { switchTo(a.id) }
+                setOnClickListener { backToList = false; if (listOpen) closeList(); switchTo(a.id) }
                 setOnLongClickListener { accountMenu(this, a); true }
             }
             if (active) {
@@ -653,7 +852,7 @@ class MainActivity : AppCompatActivity() {
         store.accounts.forEach { shownUnread[it.id] = unread[it.id] ?: 0 }
         shownTiles.clear()
         store.accounts.forEach { shownTiles += it.id }
-        shownActive = store.active
+        shownActive = if (listOpen) null else store.active
         val showWelcome = store.accounts.isEmpty()
         if (showWelcome && welcome.visibility != View.VISIBLE) {
             welcome.alpha = 0f
@@ -684,6 +883,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
         shownPage = store.active
+        if (store.accounts.isEmpty() && listOpen) { listOpen = false; listPanel.visibility = View.GONE }
+        if (listOpen) listPanel.bringToFront()
         Notifier.updateKeepAlive(this, unread.values.sum())
     }
 
@@ -1152,7 +1353,12 @@ class MainActivity : AppCompatActivity() {
         if (o.optString("t") == "chats") {
             if (store.find(id) == null) return
             val arr = o.optJSONArray("chats") ?: return
-            chats[id] = (0 until minOf(arr.length(), 40)).mapNotNull { i -> arr.optJSONObject(i)?.let { ChatRow.of(it) } }
+            val rows = (0 until minOf(arr.length(), 40)).mapNotNull { i -> arr.optJSONObject(i)?.let { ChatRow.of(it) } }
+            if (rows == chats[id]) return
+            val before = unreadChats()
+            chats[id] = rows
+            refreshList()
+            if (unreadChats() != before) renderFeedTile()
             return
         }
         if (o.optString("t") != "notify") return
@@ -1162,6 +1368,7 @@ class MainActivity : AppCompatActivity() {
         val visible = resumed && store.active == id
         if (store.active != id) attention += id
         render()
+        refreshList()
         if (visible) return
         if (!store.settings.notifications) return
         val title = o.optString("title").take(120)
@@ -1248,6 +1455,8 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         const val GEM_URL = "https://web.gemspace.com/"
+        private const val UNREAD = "\u0000unread"
+        private val CHAT_COLORS = listOf("#E53935", "#F4511E", "#FB8C00", "#43A047", "#00897B", "#039BE5", "#3949AB", "#8E24AA", "#D81B60", "#6D4C41")
 
         // geometry of the bar tiles, dp
         private const val TILE_W = 62

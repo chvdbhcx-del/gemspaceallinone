@@ -154,6 +154,9 @@ function chatTime(label) {
   return 0;
 }
 
+// chats without a picture get a colour from their name, the way Gem Space gives them one; the account shows in the dot
+const CHAT_COLORS = ['#e53935', '#f4511e', '#fb8c00', '#43a047', '#00897b', '#039be5', '#3949ab', '#8e24aa', '#d81b60', '#6d4c41'];
+const chatColor = (n) => { let h = 0; for (let i = 0; i < n.length; i++) h = (h * 31 + n.charCodeAt(i)) >>> 0; return CHAT_COLORS[h % CHAT_COLORS.length]; };
 const chatIni = (n) => initials(n.replace(/[^\p{L}\p{N}\s]/gu, ' ').trim() || n);
 
 function renderChats() {
@@ -197,14 +200,14 @@ function renderChats() {
     const fresh = !chatSeen.has(key);
     const ci = chatIni(c.name);
     const ava = c.avatar ? `<span class="cav img"><img src="${esc(c.avatar)}" alt="" referrerpolicy="no-referrer" data-i="${esc(ci)}"></span>`
-      : `<span class="cav" style="background:${esc(a.color)}">${esc(ci)}</span>`;
+      : `<span class="cav" style="background:${chatColor(c.name)}">${esc(ci)}</span>`;
     return `<button class="gs-row${fresh ? ' new' : ''}${c.unread ? ' unread' : ''}${selectedChat === key ? ' selected' : ''}" data-a="${esc(c.account)}" data-n="${esc(c.name)}" title="${esc(c.name)} · ${esc(a.name)}">
       <span class="cav-wrap">${ava}<i class="acc-dot" style="background:${esc(a.color)}">${esc(initials(a.name).slice(0, 1))}</i></span>
       <span class="gs-main"><span class="gs-top"><span class="gs-name">${esc(c.name)}</span><span class="gs-time">${esc(c.time)}</span></span>
       <span class="gs-bottom"><span class="gs-prev">${esc(c.preview || (c.unread ? 'Новое сообщение' : ''))}</span>${c.unread ? `<span class="cnt">${c.unread > 999 ? '999+' : c.unread}</span>` : ''}</span></span></button>`;
   }).join('');
   rows.forEach((c) => chatSeen.add(c.account + '|' + c.name));
-  box.querySelectorAll('.cav.img img').forEach((im) => { im.onerror = () => { const sp = im.parentNode; sp.classList.remove('img'); sp.textContent = im.dataset.i; }; });
+  box.querySelectorAll('.cav.img img').forEach((im) => { im.onerror = () => { const sp = im.parentNode; sp.classList.remove('img'); sp.style.background = chatColor(sp.closest('.gs-row').dataset.n); sp.textContent = im.dataset.i; }; });
   box.querySelectorAll('.gs-row').forEach((r) => {
     r.onclick = async () => {
       selectedChat = r.dataset.a + '|' + r.dataset.n;
