@@ -80,4 +80,8 @@
       return query(d);
     };
   }
+  // the chat list read by chats.js goes to Gemspace's "Все чаты"
+  window.__gemspaceSendChats = function (chats) {
+    try { if (window.GemspaceBridge) GemspaceBridge.postMessage(JSON.stringify({ t: 'chats', chats: chats })); } catch (e) {}
+  };
 })();

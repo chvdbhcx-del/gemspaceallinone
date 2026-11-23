@@ -83,6 +83,9 @@
     };
   }
 
+  // the chat list read by shared/chats.js goes to the rail's "Все чаты"
+  window.__gemspaceSendChats = function (chats) { invoke('acc_chats', { chats: chats }); };
+
   window.addEventListener('keydown', function (e) {
     if (!e.ctrlKey || e.altKey || e.metaKey) return;
     var key = null;

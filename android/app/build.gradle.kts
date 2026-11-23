@@ -37,6 +37,9 @@ android {
         }
     }
 
+    // shared/chats.js reads the chat list on both platforms; Android ships it as an asset
+    sourceSets["main"].assets.srcDir("../../shared")
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -59,4 +62,6 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.webkit:webkit:1.12.1")
     testImplementation("junit:junit:4.13.2")
+    // the real org.json for unit tests (android.jar only has stubs)
+    testImplementation("org.json:json:20240303")
 }
