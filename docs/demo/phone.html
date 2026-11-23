@@ -37,6 +37,13 @@ iframe{border:0;width:100%;height:calc(100% - 102px - 16px);display:block;backgr
 .fr .m{flex:1;min-width:0}.fr .t{display:flex;justify-content:space-between;font-size:12px}.fr .t b{color:var(--acc);font-weight:800}.fr .t span{color:var(--muted)}
 .fr .fn{font-weight:800;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.fr .x{color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .fnote{font-size:12px;color:var(--muted);margin:6px 8px 0}.dlg.feed .btns{padding:8px 8px 0}
+.welcome{position:fixed;left:0;right:0;top:102px;bottom:16px;background:var(--page);display:none;flex-direction:column;align-items:center;justify-content:center;padding:0 24px}
+.welcome img{width:96px;height:96px;margin-bottom:14px}.welcome h1{margin:0;font-size:32px;font-weight:900}.ws{color:var(--muted);font-weight:700;margin:6px 0 22px;font-size:15px;text-align:center}
+.wf{display:flex;gap:14px;align-items:center;width:100%;box-sizing:border-box;padding:12px 14px;border-radius:16px;background:var(--card);border:1px solid var(--line);margin-bottom:8px}
+.wi{width:38px;height:38px;border-radius:12px;background:rgba(255,77,77,.16);display:grid;place-items:center;flex:none}.wi svg{width:20px;height:20px;fill:var(--acc)}
+.wf b{display:block;font-size:15px;font-weight:800}.wf small{color:var(--muted);font-size:13px}
+.wb{width:100%;box-sizing:border-box;text-align:center;background:var(--acc);color:#fff;font-weight:800;font-size:16px;padding:15px;border-radius:14px;margin-top:14px;box-shadow:0 6px 16px rgba(0,0,0,.35)}
+.wn{color:var(--muted);font-size:12px;text-align:center;margin:12px 8px 0}
 .pop{position:fixed;left:128px;top:104px;width:200px;background:var(--float);border-radius:4px;box-shadow:0 10px 30px rgba(0,0,0,.5);padding:8px 0;display:none}
 .pop div{padding:12px 16px;font-size:16px}
 .shade{position:fixed;inset:0;background:rgba(14,18,24,.94);backdrop-filter:blur(8px);display:none;padding:34px 12px 0;box-sizing:border-box}
@@ -55,6 +62,12 @@ iframe{border:0;width:100%;height:calc(100% - 102px - 16px);display:block;backgr
 <div class="scrim" id="fscrim"><div class="dlg feed"><h3>Лента</h3><div id="frows"></div>
 <p class="fnote">Лента собирается из уведомлений аккаунтов, пока Gemspace работает. Спящие аккаунты сюда не пишут. Ответить можно в самом чате.</p>
 <div class="btns"><span>Очистить</span><span style="flex:1"></span><span>Закрыть</span></div></div></div>
+<div class="welcome" id="welcome"><img src="../../desktop/ui/logo.png" alt=""><h1>Gemspace</h1><p class="ws">Все ваши аккаунты Gem Space в одном приложении</p>
+<div class="wf"><span class="wi"><svg viewBox="0 0 24 24"><path d="M12 1 3 5v6c0 5.5 3.8 10.7 9 12 5.2-1.3 9-6.5 9-12V5zm0 6a3 3 0 1 1 0 6 3 3 0 0 1 0-6zm0 14c-2.5-.8-4.6-2.7-5.6-5.1C7.8 14.6 10 14 12 14s4.2.6 5.6 1.9c-1 2.4-3.1 4.3-5.6 5.1z"/></svg></span><div><b>Отдельный вход</b><small>У каждого аккаунта свои данные, как в разных браузерах</small></div></div>
+<div class="wf"><span class="wi"><svg viewBox="0 0 24 24"><path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 12h-4a3 3 0 0 1-6 0H5V5h14z"/></svg></span><div><b>Общая лента</b><small>Новые сообщения всех аккаунтов в одном списке</small></div></div>
+<div class="wf"><span class="wi"><svg viewBox="0 0 24 24"><path d="M12 22a2 2 0 0 0 2-2h-4a2 2 0 0 0 2 2zm6-6V11c0-3.1-1.6-5.6-4.5-6.3V4a1.5 1.5 0 0 0-3 0v.7C7.6 5.4 6 7.9 6 11v5l-2 2v1h16v-1z"/></svg></span><div><b>Уведомления</b><small>С именем аккаунта, даже когда приложение закрыто</small></div></div>
+<div class="wf"><span class="wi"><svg viewBox="0 0 24 24"><path d="M20 15.3A8.5 8.5 0 0 1 8.7 4a8.5 8.5 0 1 0 11.3 11.3z"/></svg></span><div><b>Бережёт память</b><small>Давно не открытые аккаунты засыпают сами</small></div></div>
+<div class="wb">Добавить первый аккаунт</div><p class="wn">Откроется обычная веб-версия Gem Space, вход по номеру телефона, как всегда.</p></div>
 <div class="pop" id="pop"><div>Изменить</div><div>Перезагрузить</div><div>Усыпить сейчас</div><div>Не усыплять</div><div>Левее</div><div>Правее</div><div>Удалить</div></div>
 <div class="shade" id="shade"><div class="clock">12:42</div><div class="date">понедельник, 23 ноября</div>
   <div class="n first"><span class="i" style="background:#26a69a" id="i1"></span><div><small>Gemspace · сейчас</small><b>Поддержка · Денис Карпов</b><p>Добрый вечер! Когда будет возврат по заказу 2231?</p></div></div>
@@ -79,5 +92,6 @@ if(q.includes('menu')){document.getElementById('pop').style.display='block';docu
 if(q.includes('feed')){const F=[['Поддержка','#26a69a','Денис Карпов','Добрый вечер! Когда будет возврат по заказу 2231?','12:42'],['Продажи','#3aa0ff','Ирина Морозова','Счёт получила, оплачу сегодня 👍','12:41'],['Опт','#7e57c2','Опт: заявки','Марк: Нужно 40 коробок к пятнице, успеете?','12:40'],['Поддержка','#26a69a','Светлана','Не приходит код подтверждения, что делать?','12:36'],['Магазин','#ffa726','Ольга','Спасибо, всё пришло! Оставлю отзыв','12:33'],['Склад','#66bb6a','Склад, смена 2','Паллеты на утро собраны, ждём машину','12:28']];
 document.getElementById('frows').innerHTML=F.map(([a,c,n,x,t])=>`<div class="fr"><div class="a" style="background:${c}">${a[0]}</div><div class="m"><div class="t"><b>${a}</b><span>${t}</span></div><div class="fn">${n}</div><div class="x">${x}</div></div></div>`).join('');
 document.getElementById('fscrim').style.display='flex';}
+if(q.includes('empty')){document.getElementById('strip').innerHTML='';const ad=document.createElement('div');ad.className='tile';ad.innerHTML='<div class="ic">+</div><div class="lbl">Добавить</div>';document.getElementById('strip').appendChild(ad);document.querySelector('.ic.feed').parentElement.querySelector('.badge').remove();document.querySelector('.ic.feed').classList.remove('feed');document.querySelector('iframe').style.visibility='hidden';document.getElementById('welcome').style.display='flex';}
 if(q.includes('shade'))document.getElementById('shade').style.display='block';
 </script></body></html>
