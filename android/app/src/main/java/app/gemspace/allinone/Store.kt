@@ -19,7 +19,18 @@ data class Settings(
     var maxAwake: Int = 4,
     /** Gem Space text size in percent (WebView textZoom), 80..150 */
     var uiScale: Int = 100,
-)
+    /** broadcasts (рассылка): messages one account may send in a day, random pause in seconds, warning read */
+    var bcLimit: Int = 50,
+    var bcPauseMin: Int = 25,
+    var bcPauseMax: Int = 70,
+    var bcWarned: Boolean = false,
+) {
+    fun clampBroadcast() {
+        bcLimit = bcLimit.coerceIn(1, 300)
+        bcPauseMin = bcPauseMin.coerceIn(10, 600)
+        bcPauseMax = bcPauseMax.coerceIn(bcPauseMin, 900)
+    }
+}
 
 /** Accounts and settings, kept as one JSON string in SharedPreferences. */
 class Store(context: Context) {
@@ -31,6 +42,9 @@ class Store(context: Context) {
     val labels = mutableListOf<Label>()
     /** "<account id>|<chat name>" -> label ids */
     val chatLabels = mutableMapOf<String, MutableList<String>>()
+    /** broadcast messages sent today per account (the daily limit); sentDay is "YYYY-MM-DD" */
+    var sentDay = ""
+    val sent = mutableMapOf<String, Int>()
 
     init {
         load()
@@ -53,7 +67,14 @@ class Store(context: Context) {
                 settings.sleepEnabled = s.optBoolean("sleepEnabled", true)
                 settings.maxAwake = s.optInt("maxAwake", 4).coerceIn(1, 30)
                 settings.uiScale = s.optInt("uiScale", 100).coerceIn(80, 150)
+                settings.bcLimit = s.optInt("bcLimit", 50)
+                settings.bcPauseMin = s.optInt("bcPauseMin", 25)
+                settings.bcPauseMax = s.optInt("bcPauseMax", 70)
+                settings.bcWarned = s.optBoolean("bcWarned", false)
+                settings.clampBroadcast()
             }
+            sentDay = o.optString("sentDay")
+            o.optJSONObject("sent")?.let { m -> m.keys().forEach { k -> sent[k] = m.optInt(k) } }
         } catch (e: Exception) {
             accounts.clear()
         }
@@ -89,13 +110,25 @@ class Store(context: Context) {
             .put("sleepEnabled", settings.sleepEnabled)
             .put("maxAwake", settings.maxAwake)
             .put("uiScale", settings.uiScale)
+            .put("bcLimit", settings.bcLimit)
+            .put("bcPauseMin", settings.bcPauseMin)
+            .put("bcPauseMax", settings.bcPauseMax)
+            .put("bcWarned", settings.bcWarned)
         val ls = JSONArray()
         labels.forEach { ls.put(JSONObject().put("id", it.id).put("name", it.name).put("color", it.color)) }
         val map = JSONObject()
         chatLabels.forEach { (k, v) -> map.put(k, JSONArray(v)) }
         val o = JSONObject().put("accounts", arr).put("active", active ?: "").put("settings", s)
             .put("labels", ls).put("chatLabels", map)
+            .put("sentDay", sentDay).put("sent", JSONObject(sent as Map<*, *>))
         prefs.edit().putString("state", o.toString()).apply()
+    }
+
+    /** Broadcast messages [id] sent today; a new day starts from zero. */
+    fun sentToday(id: String): Int {
+        val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+        if (sentDay != today) { sentDay = today; sent.clear() }
+        return sent[id] ?: 0
     }
 
     fun find(id: String?): Account? = accounts.firstOrNull { it.id == id }
