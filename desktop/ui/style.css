@@ -295,7 +295,8 @@ div.set-row { cursor: default; }
   border-left: 1px solid var(--line); border-right: 1px solid var(--line); z-index: 5; animation: panel-in var(--mid) var(--ease) both; }
 .p-head { display: flex; align-items: center; gap: 8px; padding: 12px 12px 8px; }
 .p-tabs { flex: 1; }
-.p-tabs b { margin-left: 6px; background: var(--accent); color: #fff; border-radius: 8px; padding: 0 6px; font-size: 11px; }
+.p-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; line-height: 18px; }
+.p-tabs b { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; box-sizing: border-box; background: var(--accent); color: #fff; border-radius: 9px; padding: 0 5px; font-size: 11px; line-height: 1; font-variant-numeric: tabular-nums; }
 .p-tabs button.on b { background: #fff; color: var(--accent); }
 .p-tabs b:empty { display: none; }
 .p-search { display: flex; align-items: center; gap: 8px; margin: 0 12px; padding: 0 12px; height: 38px; border-radius: 19px; background: var(--card);
