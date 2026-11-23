@@ -29,16 +29,18 @@ GRIDS = {
         ('desktop-menu', 'Меню аккаунта'),
         ('desktop-notify', 'Уведомление с именем аккаунта'),
         ('desktop-settings', 'Настройки'),
-        ('desktop-chats', 'Все чаты всех аккаунтов'),
+        ('desktop-settings-sleep', 'Раздел настроек'),
         ('desktop-feed', 'Лента новых сообщений'),
     ]),
-    'grid-phone': ('phone', 6, [
+    'grid-phone': ('phone', 4, [
         ('android-main', 'Аккаунты сверху'),
+        ('android-chats', 'Все чаты'),
         ('android-feed', 'Лента'),
         ('android-add', 'Новый аккаунт'),
         ('android-menu', 'Меню аккаунта'),
         ('android-notify', 'Уведомления'),
         ('android-settings', 'Настройки'),
+        ('android-welcome', 'Первый запуск'),
     ]),
 }
 
