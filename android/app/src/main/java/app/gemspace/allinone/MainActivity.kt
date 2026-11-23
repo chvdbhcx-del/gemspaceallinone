@@ -908,12 +908,12 @@ class MainActivity : AppCompatActivity() {
             textSize = 13f; setTextColor(muted)
         })
         box.addView(caption("ТЕКСТ"))
-        val text = EditText(this).apply {
+        val textField = EditText(this).apply {
             hint = "Здравствуйте, {имя}! …"; minLines = 3; maxLines = 8; gravity = Gravity.TOP or Gravity.START
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
             filters = arrayOf(android.text.InputFilter.LengthFilter(4000))
         }
-        box.addView(text)
+        box.addView(textField)
         box.addView(TextView(this).apply { text = "{имя} заменится на имя из чата, например «Ирина»."; textSize = 12f; setTextColor(muted) })
         val who = caption("КОМУ")
         box.addView(who)
@@ -968,8 +968,8 @@ class MainActivity : AppCompatActivity() {
             .create()
         dlg.setOnShowListener {
             dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val body = text.text.toString().trim()
-                if (body.isEmpty()) { text.error = "Напишите текст"; text.requestFocus(); return@setOnClickListener }
+                val body = textField.text.toString().trim()
+                if (body.isEmpty()) { textField.error = "Напишите текст"; textField.requestFocus(); return@setOnClickListener }
                 if (picked.isEmpty()) { Toast.makeText(this, "Выберите хотя бы один чат", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
                 s.bcPauseMin = pMin.text.toString().toIntOrNull() ?: 25
                 s.bcPauseMax = pMax.text.toString().toIntOrNull() ?: 70
