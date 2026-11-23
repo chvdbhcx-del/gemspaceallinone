@@ -1,0 +1,12 @@
+# desktop (Tauri)
+desktop/target/
+desktop/gen/
+# android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+*.jks
+*.keystore
+.idea/
+.DS_Store

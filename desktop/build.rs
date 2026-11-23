@@ -1,0 +1,20 @@
+fn main() {
+    // App commands get ACL permissions (allow-<command>), so the remote Gem Space pages
+    // can be given only acc_notify and acc_hotkey (capabilities/accounts.json).
+    tauri_build::try_build(tauri_build::Attributes::new().app_manifest(tauri_build::AppManifest::new().commands(&[
+        "get_state",
+        "add_account",
+        "update_account",
+        "remove_account",
+        "move_account",
+        "switch_account",
+        "reload_account",
+        "sleep_account",
+        "set_overlay",
+        "set_settings",
+        "hotkey",
+        "acc_notify",
+        "acc_hotkey",
+    ])))
+    .expect("failed to run tauri-build");
+}

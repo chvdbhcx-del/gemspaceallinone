@@ -1,0 +1,8 @@
+<resources>
+    <color name="bar">#E6EAEE</color>
+    <color name="page">#F4F6F8</color>
+    <color name="fg">#17212B</color>
+    <color name="muted">#5D6B78</color>
+    <color name="line">#C9D2DA</color>
+    <color name="ic_bg">#4F7EE8</color>
+</resources>

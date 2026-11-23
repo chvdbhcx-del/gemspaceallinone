@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gemspace</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav id="rail">
+  <div id="tiles"></div>
+  <button id="add" class="tool" title="Добавить аккаунт">+</button>
+  <div class="spacer"></div>
+  <button id="gear" class="tool" title="Настройки">⚙</button>
+</nav>
+
+<div id="menu" class="menu" hidden></div>
+
+<section id="overlay" hidden>
+  <div class="sheet">
+    <header><h1 id="ov-title"></h1><button id="ov-close" class="x" title="Закрыть">✕</button></header>
+    <div id="ov-body"></div>
+  </div>
+</section>
+
+<script src="app.js"></script>
+</body>
+</html>
