@@ -20,4 +20,21 @@
         <item name="android:windowEnterAnimation">@anim/dialog_in</item>
         <item name="android:windowExitAnimation">@anim/dialog_out</item>
     </style>
+
+    <!-- full-screen sheets for the account form and settings, in the welcome screen's look -->
+    <style name="Theme.Gemspace.Sheet" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/accent</item>
+        <item name="colorAccent">@color/accent</item>
+        <item name="colorControlActivated">@color/accent</item>
+        <item name="android:windowBackground">@color/page</item>
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:fontFamily">@font/nunito</item>
+        <item name="fontFamily">@font/nunito</item>
+        <item name="android:windowAnimationStyle">@style/Gemspace.SheetAnimation</item>
+    </style>
+
+    <style name="Gemspace.SheetAnimation" parent="@android:style/Animation.Dialog">
+        <item name="android:windowEnterAnimation">@anim/sheet_in</item>
+        <item name="android:windowExitAnimation">@anim/sheet_out</item>
+    </style>
 </resources>

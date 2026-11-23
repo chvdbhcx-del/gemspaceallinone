@@ -29,7 +29,6 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
@@ -429,6 +428,13 @@ class MainActivity : AppCompatActivity() {
             text = "Лента собирается из уведомлений аккаунтов, пока Gemspace работает. Спящие аккаунты сюда не пишут. Ответить можно в самом чате."
             textSize = 12f; setTextColor(muted); setPadding(dp(8), dp(6), dp(8), 0)
         })
+        // rows slide in one after another, like the welcome screen
+        for (i in 0 until list.childCount) {
+            val v = list.getChildAt(i)
+            v.alpha = 0f; v.translationY = dp(10).toFloat()
+            v.animate().alpha(1f).translationY(0f).setStartDelay(35L * i.coerceAtMost(10) + 80).setDuration(300)
+                .setInterpolator(android.view.animation.DecelerateInterpolator(2f)).start()
+        }
         val b = AlertDialog.Builder(this)
             .setTitle("Лента")
             .setView(ScrollView(this).apply { addView(list) })
@@ -520,7 +526,9 @@ class MainActivity : AppCompatActivity() {
             }
             strip.addView(tile)
         }
-        strip.addView(toolTile("+", "Добавить") { editAccount(null) })
+        // with no accounts the welcome screen has its own big button, and the feed has nothing to show
+        if (store.accounts.isNotEmpty()) strip.addView(toolTile("+", "Добавить") { editAccount(null) })
+        feedSlot.visibility = if (store.accounts.isEmpty()) View.GONE else View.VISIBLE
         shownUnread.clear()
         store.accounts.forEach { shownUnread[it.id] = unread[it.id] ?: 0 }
         shownTiles.clear()
@@ -595,92 +603,296 @@ class MainActivity : AppCompatActivity() {
                 .setPositiveButton("Понятно", null).show()
             return
         }
-        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(22), dp(8), dp(22), 0) }
-        val name = EditText(this).apply {
-            hint = "Название, например Продажи"; setText(a?.name ?: ""); inputType = InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-        }
-        box.addView(name)
+        val sheet = Sheet()
         var color = a?.color ?: Store.COLORS[store.accounts.size % Store.COLORS.size]
-        val colors = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(14), 0, dp(6)) }
+        val ava = sheet.avatar(color, a?.let { Store.initials(it.name) } ?: "+")
+        sheet.hero(ava, if (a == null) "Новый аккаунт" else "Аккаунт",
+            if (a == null) "Откроется веб-версия Gem Space, войдите по номеру телефона, как обычно" else "Название и цвет этого аккаунта")
+        val card = sheet.card()
+        card.setPadding(dp(16), dp(16), dp(16), dp(16))
+        card.addView(sheet.label("Название"))
+        val name = EditText(this).apply {
+            hint = "Например, Продажи"; setText(a?.name ?: ""); textSize = 16f
+            inputType = InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            setTextColor(ContextCompat.getColor(context, R.color.fg))
+            setHintTextColor(ContextCompat.getColor(context, R.color.muted))
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            background = sheet.field(false)
+            setOnFocusChangeListener { _, f -> background = sheet.field(f) }
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(t: CharSequence?, s: Int, c: Int, n: Int) {}
+                override fun onTextChanged(t: CharSequence?, s: Int, b: Int, c: Int) {}
+                override fun afterTextChanged(e: android.text.Editable?) {
+                    val v = e.toString().trim()
+                    ava.text = if (v.isEmpty()) "+" else Store.initials(v)
+                }
+            })
+        }
+        card.addView(name)
+        card.addView(sheet.label("Цвет").apply { setPadding(0, dp(16), 0, dp(8)) })
+        val colors = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         fun paint() {
             for (k in 0 until colors.childCount) {
                 val c = Store.COLORS[k]
-                colors.getChildAt(k).background = GradientDrawable().apply {
+                val sw = colors.getChildAt(k) as ImageView
+                sw.background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL; setColor(c)
                     if (c == color) setStroke(dp(3), ContextCompat.getColor(this@MainActivity, R.color.fg))
                 }
+                sw.setImageResource(if (c == color) R.drawable.ic_check else 0)
             }
         }
         Store.COLORS.forEach { c ->
-            colors.addView(View(this).apply {
-                layoutParams = LinearLayout.LayoutParams(dp(30), dp(30)).apply { marginEnd = dp(6) }
-                setOnClickListener { color = c; paint() }
-            })
+            colors.addView(ImageView(this).apply {
+                setPadding(dp(7), dp(7), dp(7), dp(7))
+                setColorFilter(Color.WHITE)
+                setOnClickListener {
+                    color = c; paint()
+                    (ava.background as GradientDrawable).setColor(c)
+                    sheet.pop(ava); sheet.pop(this)
+                }
+            }, LinearLayout.LayoutParams(0, dp(34), 1f).apply { marginEnd = dp(6) })
         }
         paint()
-        box.addView(colors)
-        AlertDialog.Builder(this)
-            .setTitle(if (a == null) "Новый аккаунт" else "Аккаунт")
-            .setView(box)
-            .setPositiveButton(if (a == null) "Добавить и войти" else "Сохранить") { _, _ ->
-                val n = name.text.toString().trim()
-                if (a == null) {
-                    val acc = Account(store.newId(), n.ifEmpty { "Аккаунт ${store.accounts.size + 1}" }, color)
-                    store.accounts += acc
-                    store.save()
-                    switchTo(acc.id)
-                } else {
-                    if (n.isNotEmpty()) a.name = n
-                    a.color = color
-                    store.save(); render()
-                }
+        card.addView(colors)
+        var pin: androidx.appcompat.widget.SwitchCompat? = null
+        if (a != null) {
+            val c2 = sheet.card()
+            pin = sheet.toggle(c2, R.drawable.ic_moon, "Не усыплять", "Аккаунт всегда загружен и присылает уведомления", a.pinned)
+        }
+        sheet.primary(if (a == null) "Добавить и войти" else "Сохранить") {
+            val n = name.text.toString().trim()
+            if (a == null) {
+                val acc = Account(store.newId(), n.ifEmpty { "Аккаунт ${store.accounts.size + 1}" }, color)
+                store.accounts += acc
+                store.save()
+                switchTo(acc.id)
+            } else {
+                if (n.isNotEmpty()) a.name = n
+                a.color = color
+                a.pinned = pin?.isChecked ?: a.pinned
+                store.save(); enforceSleep(); render()
             }
-            .setNegativeButton("Отмена", null)
-            .show()
+            sheet.dismiss()
+        }
+        sheet.ghost("Отмена") { sheet.dismiss() }
+        sheet.show()
+        if (a == null) name.requestFocus()
     }
 
     private fun confirmRemove(a: Account) {
-        AlertDialog.Builder(this)
-            .setTitle("Удалить аккаунт?")
-            .setMessage("«${a.name}» исчезнет из Gemspace, его данные на телефоне будут стёрты. Сам аккаунт Gem Space останется, войти можно снова.")
-            .setPositiveButton("Удалить") { _, _ -> remove(a) }
-            .setNegativeButton("Отмена", null)
-            .show()
+        val sheet = Sheet()
+        sheet.hero(sheet.avatar(a.color, Store.initials(a.name)), "Удалить «${a.name}»?",
+            "Аккаунт исчезнет из Gemspace, его данные на телефоне будут стёрты. Сам аккаунт Gem Space останется, войти в него можно снова.")
+        sheet.primary("Удалить", danger = true) { remove(a); sheet.dismiss() }
+        sheet.ghost("Отмена") { sheet.dismiss() }
+        sheet.show()
     }
 
     private fun openSettings() {
         val s = store.settings
-        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(22), dp(8), dp(22), 0) }
-        fun check(label: String, value: Boolean) = CheckBox(this).apply { text = label; isChecked = value }.also { box.addView(it) }
-        val notif = check("Уведомления о новых сообщениях", s.notifications)
-        val preview = check("Текст сообщения в уведомлении", s.notifyPreview)
-        val keep = check("Работать в фоне (значок в шторке, уведомления не теряются)", s.keepAlive)
-        val sleepOn = check("Спящий режим: выгружать давно не открытые аккаунты", s.sleepEnabled)
-        box.addView(TextView(this).apply { text = "Сколько аккаунтов держать загруженными"; setPadding(0, dp(10), 0, 0) })
-        val max = EditText(this).apply { inputType = InputType.TYPE_CLASS_NUMBER; setText(s.maxAwake.toString()) }
-        box.addView(max)
-        box.addView(TextView(this).apply {
-            text = "Спящий аккаунт не присылает уведомлений, пока его не открыть. Открытый и отмеченные «Не усыплять» не засыпают.\n\nGemspace ${BuildConfig.VERSION_NAME}. Новые версии проверяются сами при запуске. Внутри обычная веб-версия Gem Space, Gemspace её не изменяет."
-            textSize = 12f; setPadding(0, dp(8), 0, dp(8))
-            setTextColor(ContextCompat.getColor(context, R.color.muted))
-        })
-        AlertDialog.Builder(this)
-            .setTitle("Настройки")
-            .setView(box)
-            .setPositiveButton("Сохранить") { _, _ ->
-                s.notifications = notif.isChecked
-                s.notifyPreview = preview.isChecked
-                s.keepAlive = keep.isChecked
-                s.sleepEnabled = sleepOn.isChecked
-                s.maxAwake = (max.text.toString().toIntOrNull() ?: 4).coerceIn(1, 30)
-                store.save()
-                enforceSleep()
-                updateKeepAlive()
-                render()
+        val sheet = Sheet()
+        val gear = sheet.avatar(ContextCompat.getColor(this, R.color.card), "").apply {
+            (background as GradientDrawable).setStroke(dp(1), ContextCompat.getColor(context, R.color.line))
+        }
+        val gearBox = FrameLayout(this).apply {
+            addView(gear, FrameLayout.LayoutParams(dp(72), dp(72)))
+            addView(ImageView(context).apply {
+                setImageResource(R.drawable.ic_gear); setColorFilter(ContextCompat.getColor(context, R.color.accent))
+                rotation = -120f; alpha = 0f
+                animate().rotation(0f).alpha(1f).setDuration(700).setStartDelay(80)
+                    .setInterpolator(android.view.animation.DecelerateInterpolator(2f)).start()
+            }, FrameLayout.LayoutParams(dp(34), dp(34), Gravity.CENTER))
+        }
+        sheet.hero(gearBox, "Настройки", "Gemspace ${BuildConfig.VERSION_NAME}. Внутри обычная веб-версия Gem Space, Gemspace её не изменяет.")
+        sheet.section("Уведомления")
+        val c1 = sheet.card()
+        val notif = sheet.toggle(c1, R.drawable.ic_bell, "Уведомления", "О новых сообщениях во всех аккаунтах", s.notifications)
+        val preview = sheet.toggle(c1, R.drawable.ic_text, "Текст сообщения", "Показывать в уведомлении, а не только имя", s.notifyPreview)
+        val keep = sheet.toggle(c1, R.drawable.ic_bolt, "Работать в фоне", "Значок в шторке, уведомления не теряются", s.keepAlive)
+        sheet.section("Память")
+        val c2 = sheet.card()
+        val sleepOn = sheet.toggle(c2, R.drawable.ic_moon, "Спящий режим", "Давно не открытые аккаунты выгружаются и не присылают уведомлений", s.sleepEnabled)
+        var max = s.maxAwake.coerceIn(1, 30)
+        val value = TextView(this).apply {
+            text = max.toString(); textSize = 15f; typeface = fontHeavy; gravity = Gravity.CENTER
+            setTextColor(ContextCompat.getColor(context, R.color.fg))
+        }
+        fun stepBtn(t: String, d: Int) = TextView(this).apply {
+            text = t; textSize = 18f; typeface = fontHeavy; gravity = Gravity.CENTER
+            setTextColor(ContextCompat.getColor(context, R.color.fg))
+            setOnClickListener { max = (max + d).coerceIn(1, 30); value.text = max.toString(); sheet.pop(value) }
+        }
+        val stepper = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            background = sheet.field(false)
+            addView(stepBtn("−", -1), LinearLayout.LayoutParams(dp(36), dp(36)))
+            addView(value, LinearLayout.LayoutParams(dp(30), dp(36)))
+            addView(stepBtn("+", 1), LinearLayout.LayoutParams(dp(36), dp(36)))
+        }
+        val maxRow = sheet.row(c2, R.drawable.ic_layers, "Загружено одновременно", "Открытый и «Не усыплять» не считаются", stepper)
+        fun syncMax() { maxRow.animate().alpha(if (sleepOn.isChecked) 1f else 0.4f).setDuration(180).start(); stepper.isEnabled = sleepOn.isChecked
+            for (i in 0 until stepper.childCount) stepper.getChildAt(i).isEnabled = sleepOn.isChecked }
+        sleepOn.setOnCheckedChangeListener { _, _ -> syncMax() }
+        syncMax()
+        sheet.section("Обновления")
+        val c3 = sheet.card()
+        val check = sheet.smallButton("Проверить") { Updater.checkNow(this) }
+        sheet.row(c3, R.drawable.ic_refresh, "Версия ${BuildConfig.VERSION_NAME}", "Проверяется сама при запуске", check)
+        sheet.primary("Сохранить") {
+            s.notifications = notif.isChecked
+            s.notifyPreview = preview.isChecked
+            s.keepAlive = keep.isChecked
+            s.sleepEnabled = sleepOn.isChecked
+            s.maxAwake = max
+            store.save()
+            enforceSleep()
+            updateKeepAlive()
+            render()
+            sheet.dismiss()
+        }
+        sheet.ghost("Отмена") { sheet.dismiss() }
+        sheet.show()
+    }
+
+    /** A full-screen sheet in the welcome screen's look: hero on top, cards of rows, big buttons. Children rise one after another. */
+    private inner class Sheet {
+        val dialog = androidx.appcompat.app.AppCompatDialog(this@MainActivity, R.style.Theme_Gemspace_Sheet)
+        val col = LinearLayout(this@MainActivity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), dp(28))
+        }
+        private val fg = ContextCompat.getColor(this@MainActivity, R.color.fg)
+        private val muted = ContextCompat.getColor(this@MainActivity, R.color.muted)
+        private val accent = ContextCompat.getColor(this@MainActivity, R.color.accent)
+        private val cardColor = ContextCompat.getColor(this@MainActivity, R.color.card)
+        private val line = ContextCompat.getColor(this@MainActivity, R.color.line)
+        private val page = ContextCompat.getColor(this@MainActivity, R.color.page)
+
+        init {
+            val root = FrameLayout(this@MainActivity)
+            root.addView(ScrollView(this@MainActivity).apply { isFillViewport = true; addView(col) })
+            root.addView(ImageView(this@MainActivity).apply {
+                setImageResource(R.drawable.ic_close); setColorFilter(muted)
+                setPadding(dp(12), dp(12), dp(12), dp(12))
+                setOnClickListener { dismiss() }
+            }, FrameLayout.LayoutParams(dp(48), dp(48), Gravity.END or Gravity.TOP).apply { topMargin = dp(6); marginEnd = dp(6) })
+            ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+                val b = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime())
+                v.setPadding(b.left, b.top, b.right, b.bottom); insets
             }
-            .setNegativeButton("Отмена", null)
-            .setNeutralButton("Обновления") { _, _ -> Updater.checkNow(this) }
-            .show()
+            dialog.setContentView(root)
+            dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        }
+
+        fun avatar(color: Int, text: String) = TextView(this@MainActivity).apply {
+            this.text = text; textSize = 26f; typeface = fontHeavy; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
+            background = GradientDrawable().apply { cornerRadius = dp(22).toFloat(); setColor(color) }
+        }
+
+        fun hero(icon: View, title: String, sub: String) {
+            val box = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; setPadding(0, dp(40), 0, dp(14))
+            }
+            box.addView(icon, LinearLayout.LayoutParams(dp(72), dp(72)))
+            icon.scaleX = 0.6f; icon.scaleY = 0.6f
+            icon.animate().scaleX(1f).scaleY(1f).setDuration(420).setInterpolator(OvershootInterpolator(2f)).start()
+            box.addView(TextView(this@MainActivity).apply {
+                text = title; textSize = 26f; typeface = fontHeavy; gravity = Gravity.CENTER; setTextColor(fg); setPadding(0, dp(16), 0, 0)
+            })
+            box.addView(TextView(this@MainActivity).apply {
+                text = sub; textSize = 14f; typeface = fontBold; gravity = Gravity.CENTER; setTextColor(muted); setPadding(dp(8), dp(6), dp(8), 0)
+            })
+            col.addView(box)
+        }
+
+        fun section(t: String) {
+            col.addView(label(t).apply { setPadding(dp(4), dp(14), 0, dp(8)) })
+        }
+
+        fun label(t: String) = TextView(this@MainActivity).apply {
+            text = t.uppercase(); textSize = 12f; typeface = fontHeavy; letterSpacing = 0.04f; setTextColor(muted); setPadding(0, 0, 0, dp(8))
+        }
+
+        fun card(): LinearLayout = LinearLayout(this@MainActivity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(2), dp(16), dp(2))
+            background = GradientDrawable().apply { cornerRadius = dp(16).toFloat(); setColor(cardColor); setStroke(dp(1), line) }
+        }.also { col.addView(it, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(10) }) }
+
+        fun field(focused: Boolean) = GradientDrawable().apply {
+            cornerRadius = dp(12).toFloat(); setColor(page); setStroke(dp(if (focused) 2 else 1), if (focused) accent else line)
+        }
+
+        fun row(card: LinearLayout, icon: Int, title: String, sub: String?, trailing: View): LinearLayout {
+            if (card.childCount > 0) card.addView(View(this@MainActivity).apply { setBackgroundColor(line) },
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)))
+            val r = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(12), 0, dp(12))
+            }
+            r.addView(ImageView(this@MainActivity).apply {
+                setImageResource(icon); setColorFilter(accent); setPadding(dp(8), dp(8), dp(8), dp(8))
+                background = GradientDrawable().apply { cornerRadius = dp(11).toFloat(); setColor((accent and 0x00FFFFFF) or 0x26000000) }
+            }, LinearLayout.LayoutParams(dp(36), dp(36)))
+            val txt = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12), 0, dp(10), 0) }
+            txt.addView(TextView(this@MainActivity).apply { text = title; textSize = 15f; typeface = fontHeavy; setTextColor(fg) })
+            if (sub != null) txt.addView(TextView(this@MainActivity).apply { text = sub; textSize = 12.5f; setTextColor(muted) })
+            r.addView(txt, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            r.addView(trailing)
+            card.addView(r)
+            return r
+        }
+
+        fun toggle(card: LinearLayout, icon: Int, title: String, sub: String?, on: Boolean): androidx.appcompat.widget.SwitchCompat {
+            val sw = androidx.appcompat.widget.SwitchCompat(this@MainActivity).apply {
+                isChecked = on
+                thumbTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
+                trackTintList = android.content.res.ColorStateList(
+                    arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()), intArrayOf(accent, line))
+                trackTintMode = android.graphics.PorterDuff.Mode.SRC
+            }
+            row(card, icon, title, sub, sw).setOnClickListener { sw.toggle() }
+            return sw
+        }
+
+        fun smallButton(t: String, onClick: () -> Unit) = TextView(this@MainActivity).apply {
+            text = t; textSize = 14f; typeface = fontHeavy; setTextColor(fg); setPadding(dp(14), dp(8), dp(14), dp(8))
+            background = field(false)
+            setOnClickListener { onClick() }
+        }
+
+        fun primary(t: String, danger: Boolean = false, onClick: () -> Unit) {
+            col.addView(TextView(this@MainActivity).apply {
+                text = t; textSize = 16f; typeface = fontHeavy; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
+                background = GradientDrawable().apply { cornerRadius = dp(16).toFloat(); setColor(if (danger) Color.parseColor("#E53935") else accent) }
+                elevation = dp(6).toFloat()
+                setOnClickListener { onClick() }
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(10) })
+        }
+
+        fun ghost(t: String, onClick: () -> Unit) {
+            col.addView(TextView(this@MainActivity).apply {
+                text = t; textSize = 15f; typeface = fontBold; gravity = Gravity.CENTER; setTextColor(muted)
+                setOnClickListener { onClick() }
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(4) })
+        }
+
+        fun pop(v: View) {
+            v.scaleX = 0.8f; v.scaleY = 0.8f
+            v.animate().scaleX(1f).scaleY(1f).setDuration(260).setInterpolator(OvershootInterpolator(3f)).start()
+        }
+
+        fun show() {
+            for (i in 0 until col.childCount) {
+                val v = col.getChildAt(i)
+                v.alpha = 0f; v.translationY = dp(12).toFloat()
+                v.animate().alpha(1f).translationY(0f).setStartDelay(40L * i + 60).setDuration(340)
+                    .setInterpolator(android.view.animation.DecelerateInterpolator(2f)).start()
+            }
+            dialog.show()
+        }
+
+        fun dismiss() = dialog.dismiss()
     }
 
     // ---------- accounts ----------

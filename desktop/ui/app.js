@@ -70,6 +70,9 @@ function renderRail() {
     if (a.pinned) b.insertAdjacentHTML('beforeend', `<span class="pin" title="не усыпляется">${PIN_SVG}</span>`);
   });
   moveIndicator();
+  // with no accounts the welcome screen has its own big button, and the feed has nothing to show
+  const none = !state.accounts.length;
+  $('#feed').hidden = none; $('.sep').hidden = none; $('#add').hidden = none;
   renderFeedButton();
   renderUpdateButton();
 }
@@ -178,22 +181,55 @@ function colorPicker(current) {
     `<button type="button" class="swatch${c === current ? ' on' : ''}" data-c="${c}" style="background:${c}"></button>`).join('')}</div>`;
 }
 
+const GLOBE = 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm6.9 6h-3a15.7 15.7 0 0 0-1.4-3.6A8 8 0 0 1 18.9 8zM12 4c.8 1.2 1.5 2.5 1.9 4h-3.8c.4-1.5 1.1-2.8 1.9-4zM4.3 14a8.2 8.2 0 0 1 0-4h3.4a16.5 16.5 0 0 0 0 4zm.8 2h3a15.7 15.7 0 0 0 1.4 3.6A8 8 0 0 1 5.1 16zm3-8h-3a8 8 0 0 1 4.4-3.6C8 5.6 7.6 6.8 8.1 8zM12 20c-.8-1.2-1.5-2.5-1.9-4h3.8c-.4 1.5-1.1 2.8-1.9 4zm2.3-6H9.7a14.7 14.7 0 0 1 0-4h4.6a14.7 14.7 0 0 1 0 4zm.3 5.6c.6-1.1 1.1-2.3 1.4-3.6h3a8 8 0 0 1-4.4 3.6zm1.7-5.6a16.5 16.5 0 0 0 0-4h3.4a8.2 8.2 0 0 1 0 4z';
+const MOON_PATH = 'M20 15.3A8.5 8.5 0 0 1 8.7 4a8.5 8.5 0 1 0 11.3 11.3z';
+const BELL_PATH = 'M12 22a2 2 0 0 0 2-2h-4a2 2 0 0 0 2 2zm6-6V11c0-3.1-1.6-5.6-4.5-6.3V4a1.5 1.5 0 0 0-3 0v.7C7.6 5.4 6 7.9 6 11v5l-2 2v1h16v-1z';
+const TEXT_PATH = 'M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zM6 9h12v2H6zm8 5H6v-2h8zm4-6H6V6h12z';
+const LAYERS_PATH = 'M12 16.5 4.6 10.8 3 12l9 7 9-7-1.6-1.2zM12 14l9-7-9-7-9 7z';
+const TRAY_PATH = 'M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 16H5v-3h3.6a3.5 3.5 0 0 0 6.8 0H19zm0-5h-5a2 2 0 0 1-4 0H5V5h14z';
+const REFRESH_PATH = 'M17.7 6.3A8 8 0 1 0 19.7 14h-2.1a6 6 0 1 1-1.4-6.2L13 11h7V4z';
+const KEYS_PATH = 'M20 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm-9 3h2v2h-2zm0 3h2v2h-2zM8 8h2v2H8zm0 3h2v2H8zm-1 2H5v-2h2zm0-3H5V8h2zm9 7H8v-2h8zm0-4h-2v-2h2zm0-3h-2V8h2zm3 3h-2v-2h2zm0-3h-2V8h2z';
+const GEAR_PATH = 'M19.4 13a7.8 7.8 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.3 7.3 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.3 7.3 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.8 7.8 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.3 7.3 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.3 7.3 0 0 0 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z';
+const icon = (d) => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${d}"/></svg>`;
+
+// Colors and the name drive the big avatar on top, so the tile is seen before it is made.
 function wireColors(root) {
+  const ava = root.querySelector('#af-ava');
   root.querySelectorAll('.swatch').forEach((s) => {
-    s.onclick = () => { root.querySelectorAll('.swatch').forEach((x) => x.classList.remove('on')); s.classList.add('on'); };
+    s.onclick = () => {
+      root.querySelectorAll('.swatch').forEach((x) => x.classList.remove('on'));
+      s.classList.add('on');
+      if (ava) { ava.style.background = s.dataset.c; ava.classList.remove('bump'); void ava.offsetWidth; ava.classList.add('bump'); }
+    };
   });
+  const name = root.querySelector('#f-name');
+  if (name && ava) name.addEventListener('input', () => { ava.textContent = name.value.trim() ? initials(name.value) : '+'; });
 }
 
 function accountForm(a) {
-  return `
-    <label class="field"><span>Название</span>
-      <input type="text" id="f-name" maxlength="40" value="${esc(a ? a.name : '')}" placeholder="Например, Продажи или +7 900…"></label>
-    <div class="field"><span>Цвет</span>${colorPicker(a ? a.color : COLORS[state.accounts.length % COLORS.length])}</div>
-    <label class="field"><span>Прокси (необязательно)</span>
+  const color = a ? a.color : COLORS[state.accounts.length % COLORS.length];
+  return `<div class="acc-form">
+    <div class="af-hero">
+      <span class="af-ava" id="af-ava" style="background:${esc(color)}">${a ? esc(initials(a.name)) : '+'}</span>
+      <h1>${a ? 'Аккаунт' : 'Новый аккаунт'}</h1>
+      <p>${a ? 'Название, цвет и прокси этого аккаунта' : 'Откроется веб-версия Gem Space, войдите по номеру телефона, как обычно'}</p>
+    </div>
+    <div class="af-card">
+      <label class="af-field"><span>Название</span>
+        <input type="text" id="f-name" maxlength="40" value="${esc(a ? a.name : '')}" placeholder="Например, Продажи или +7 900…"></label>
+      <div class="af-field"><span>Цвет</span>${colorPicker(color)}</div>
+    </div>
+    <details class="af-card af-more"${a && a.proxy ? ' open' : ''}>
+      <summary><span class="af-ic">${icon(GLOBE)}</span><span class="af-txt"><b>Прокси</b><small>Необязательно. С ним аккаунт выходит в сеть только через этот адрес</small></span><span class="af-chev"></span></summary>
       <input type="text" id="f-proxy" value="${esc(a && a.proxy ? a.proxy : '')}" placeholder="socks5://1.2.3.4:1080 или http://1.2.3.4:8080">
-      <div class="hint">С прокси аккаунт выходит в сеть только через него. Прокси с логином и паролем не поддерживаются.</div></label>
-    ${a ? `<label class="check"><input type="checkbox" id="f-pin" ${a.pinned ? 'checked' : ''}><span>Не усыплять этот аккаунт</span></label>` : ''}
-    <div class="err"></div>`;
+      <div class="hint">SOCKS5 или HTTP. Прокси с логином и паролем WebView2 не поддерживает.</div>
+    </details>
+    ${a ? `<label class="af-card af-toggle"><span class="af-ic">${icon(MOON_PATH)}</span><span class="af-txt"><b>Не усыплять</b><small>Аккаунт всегда загружен и присылает уведомления</small></span>
+      <input type="checkbox" id="f-pin" ${a.pinned ? 'checked' : ''}><span class="switch"></span></label>` : ''}
+    <div class="err"></div>
+    <button class="btn primary big wide" id="f-ok">${a ? 'Сохранить' : 'Добавить и войти'}</button>
+    <button class="btn ghost wide" id="f-cancel">Отмена</button>
+  </div>`;
 }
 
 function formValues() {
@@ -212,6 +248,7 @@ async function openOverlay(kind, a) {
   $('#overlay').hidden = false;
   $('#overlay').classList.toggle('side', kind === 'feed');
   $('#overlay').classList.toggle('welcome-mode', kind === 'welcome');
+  $('#overlay').classList.toggle('form-mode', kind === 'add' || kind === 'edit' || kind === 'remove' || kind === 'settings');
   const body = $('#ov-body');
   $('#ov-close').hidden = kind === 'welcome';
   if (kind === 'welcome') {
@@ -232,10 +269,8 @@ async function openOverlay(kind, a) {
     </div>`;
     $('#w-add').onclick = () => openOverlay('add');
   } else if (kind === 'add') {
-    $('#ov-title').textContent = 'Новый аккаунт';
-    body.innerHTML = accountForm(null) +
-      `<div class="row"><button class="btn primary" id="f-ok">Добавить и войти</button><button class="btn" id="f-cancel">Отмена</button></div>
-       <p class="hint">Откроется веб-версия Gem Space, войдите в ней по номеру телефона как обычно.</p>`;
+    $('#ov-title').textContent = '';
+    body.innerHTML = accountForm(null);
     wireColors(body);
     $('#f-name').focus();
     $('#f-ok').onclick = async () => {
@@ -244,9 +279,8 @@ async function openOverlay(kind, a) {
       catch (e) { alertErr(e); }
     };
   } else if (kind === 'edit') {
-    $('#ov-title').textContent = 'Аккаунт';
-    body.innerHTML = accountForm(a) +
-      `<div class="row"><button class="btn primary" id="f-ok">Сохранить</button><button class="btn" id="f-cancel">Отмена</button></div>`;
+    $('#ov-title').textContent = '';
+    body.innerHTML = accountForm(a);
     wireColors(body);
     $('#f-ok').onclick = async () => {
       const v = formValues();
@@ -262,10 +296,14 @@ async function openOverlay(kind, a) {
       } catch (e) { alertErr(e); }
     };
   } else if (kind === 'remove') {
-    $('#ov-title').textContent = 'Удалить аккаунт?';
-    body.innerHTML = `<p>«${esc(a.name)}» исчезнет из Gemspace, а его данные на этом компьютере будут стёрты.
-      Сам аккаунт Gem Space останется, войти в него можно снова.</p>
-      <div class="row"><button class="btn danger" id="f-ok">Удалить</button><button class="btn" id="f-cancel">Отмена</button></div><div class="err"></div>`;
+    $('#ov-title').textContent = '';
+    body.innerHTML = `<div class="acc-form">
+      <div class="af-hero"><span class="af-ava" style="background:${esc(a.color)}">${esc(initials(a.name))}</span>
+        <h1>Удалить «${esc(a.name)}»?</h1>
+        <p>Аккаунт исчезнет из Gemspace, а его данные на этом компьютере будут стёрты. Сам аккаунт Gem Space останется, войти в него можно снова.</p></div>
+      <div class="err"></div>
+      <button class="btn danger-fill big wide" id="f-ok">Удалить</button>
+      <button class="btn ghost wide" id="f-cancel">Отмена</button></div>`;
     $('#f-ok').onclick = async () => {
       try { await invoke('remove_account', { id: a.id }); closeOverlay(); } catch (e) { alertErr(e); }
     };
@@ -303,31 +341,59 @@ async function openOverlay(kind, a) {
     }
   } else if (kind === 'settings') {
     const s = state.settings;
-    $('#ov-title').textContent = 'Настройки';
-    body.innerHTML = `
-      <h2>Уведомления</h2>
-      <div class="card">
-        <label class="check"><input type="checkbox" id="s-notif" ${s.notifications ? 'checked' : ''}><span>Показывать уведомления о новых сообщениях</span></label>
-        <label class="check"><input type="checkbox" id="s-preview" ${s.notify_preview ? 'checked' : ''}><span>Показывать текст сообщения в уведомлении</span></label>
+    $('#ov-title').textContent = '';
+    const row = (ic, id, on, title, text) => `<label class="set-row"><span class="af-ic">${icon(ic)}</span><span class="af-txt"><b>${title}</b>${text ? `<small>${text}</small>` : ''}</span>
+      <input type="checkbox" id="${id}" ${on ? 'checked' : ''}><span class="switch"></span></label>`;
+    const key = (k, text) => `<div class="key-row"><span class="keys">${k.map((x) => `<kbd>${x}</kbd>`).join('<i>+</i>')}</span><span>${text}</span></div>`;
+    body.innerHTML = `<div class="acc-form settings-form">
+      <div class="af-hero">
+        <span class="af-ava set-ava">${icon(GEAR_PATH)}</span>
+        <h1>Настройки</h1>
+        <p>Gemspace ${esc(state.version || '')}. Внутри обычная веб-версия Gem Space, Gemspace её не изменяет.</p>
       </div>
-      <h2>Спящий режим</h2>
-      <div class="card">
-        <label class="check"><input type="checkbox" id="s-sleep" ${s.sleep_enabled ? 'checked' : ''}><span>Усыплять аккаунты, которыми давно не пользовались. Спящий аккаунт не занимает память, но и уведомлений не присылает, пока его не открыть.</span></label>
-        <label class="field"><span>Сколько аккаунтов держать загруженными</span><input type="number" id="s-max" min="1" max="60" value="${s.max_awake}"></label>
-        <div class="hint">Открытый аккаунт и отмеченные «Не усыплять» не засыпают никогда и в это число не входят.</div>
+      <div class="set-label">Уведомления</div>
+      <div class="af-card set-card">
+        ${row(BELL_PATH, 's-notif', s.notifications, 'Уведомления', 'О новых сообщениях во всех аккаунтах')}
+        ${row(TEXT_PATH, 's-preview', s.notify_preview, 'Текст сообщения', 'Показывать в уведомлении, а не только имя')}
       </div>
-      <h2>Окно</h2>
-      <div class="card">
-        <label class="check"><input type="checkbox" id="s-tray" ${s.close_to_tray ? 'checked' : ''}><span>Крестик сворачивает в трей, уведомления продолжают приходить</span></label>
+      <div class="set-label">Память</div>
+      <div class="af-card set-card">
+        ${row(MOON_PATH, 's-sleep', s.sleep_enabled, 'Спящий режим', 'Давно не открытые аккаунты выгружаются и не присылают уведомлений')}
+        <div class="set-row" id="s-max-row"><span class="af-ic">${icon(LAYERS_PATH)}</span><span class="af-txt"><b>Загружено одновременно</b><small>Открытый и «Не усыплять» не считаются</small></span>
+          <span class="stepper"><button type="button" data-d="-1" aria-label="Меньше">−</button><input type="number" id="s-max" min="1" max="60" value="${s.max_awake}"><button type="button" data-d="1" aria-label="Больше">+</button></span></div>
       </div>
-      <h2>Клавиши</h2>
-      <div class="card"><p><kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd> аккаунт по номеру, <kbd>Ctrl</kbd>+<kbd>Tab</kbd> и <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Tab</kbd> следующий и предыдущий, <kbd>Ctrl</kbd>+колесо масштаб.</p>
-        <p>Правый клик по аккаунту: изменить, перезагрузить, усыпить, порядок, удалить.</p></div>
-      <h2>Обновления</h2>
-      <div class="card"><p>Gemspace ${esc(state.version || '')}. Новые версии проверяются сами, раз в несколько часов, и ставятся по кнопке.</p>
-        <p><button class="btn small" id="s-check">Проверить сейчас</button> <span class="hint" id="s-check-res"></span></p></div>
-      <p class="hint">Внутри открывается обычная веб-версия Gem Space (web.gemspace.com), Gemspace её не изменяет.</p>
-      <div class="row"><button class="btn primary" id="f-ok">Сохранить</button><button class="btn" id="f-cancel">Отмена</button></div>`;
+      <div class="set-label">Окно</div>
+      <div class="af-card set-card">
+        ${row(TRAY_PATH, 's-tray', s.close_to_tray, 'Сворачивать в трей', 'Крестик прячет окно, уведомления продолжают приходить')}
+      </div>
+      <div class="set-label">Обновления</div>
+      <div class="af-card set-card">
+        <div class="set-row"><span class="af-ic">${icon(REFRESH_PATH)}</span><span class="af-txt"><b>Версия ${esc(state.version || '')}</b><small id="s-check-res">Проверяются сами раз в несколько часов</small></span>
+          <button class="btn small" id="s-check">Проверить</button></div>
+      </div>
+      <details class="af-card af-more">
+        <summary><span class="af-ic">${icon(KEYS_PATH)}</span><span class="af-txt"><b>Горячие клавиши</b><small>Переключение аккаунтов с клавиатуры</small></span><span class="af-chev"></span></summary>
+        <div class="keys-list">
+          ${key(['Ctrl', '1…9'], 'Аккаунт по номеру')}
+          ${key(['Ctrl', 'Tab'], 'Следующий аккаунт')}
+          ${key(['Ctrl', 'Shift', 'Tab'], 'Предыдущий аккаунт')}
+          ${key(['Ctrl', 'колесо'], 'Масштаб')}
+          <div class="key-row"><span class="keys"><kbd>Правый клик</kbd></span><span>Изменить, усыпить, порядок, удалить</span></div>
+        </div>
+      </details>
+      <div class="err"></div>
+      <button class="btn primary big wide" id="f-ok">Сохранить</button>
+      <button class="btn ghost wide" id="f-cancel">Отмена</button>
+    </div>`;
+    const max = $('#s-max');
+    const syncMax = () => $('#s-max-row').classList.toggle('off', !$('#s-sleep').checked);
+    $('#s-sleep').addEventListener('change', syncMax); syncMax();
+    body.querySelectorAll('.stepper button').forEach((btn) => {
+      btn.onclick = () => {
+        max.value = Math.max(1, Math.min(60, (parseInt(max.value, 10) || 8) + Number(btn.dataset.d)));
+        max.classList.remove('bump'); void max.offsetWidth; max.classList.add('bump');
+      };
+    });
     $('#f-ok').onclick = async () => {
       const settings = {
         notifications: $('#s-notif').checked,
