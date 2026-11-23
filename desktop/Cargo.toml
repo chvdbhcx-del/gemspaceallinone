@@ -25,8 +25,9 @@ serde_json = "1"
 url = "2"
 
 [profile.release]
-codegen-units = 1
-lto = true
+# thin LTO with the default codegen units: the release build takes well under a minute in CI instead of
+# 2.5 (fat LTO with one unit), for an installer only slightly larger
+lto = "thin"
 opt-level = "s"
 panic = "abort"
 strip = true

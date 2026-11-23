@@ -2,10 +2,14 @@
 # to a GitHub release. Stable file names, so .../releases/latest/download/<name> always gives the newest.
 name: Build
 
+# A pull request runs the checks (tests, clippy, the Android build); main builds the installer and
+# releases. Changes only to docs and README build nothing.
 on:
   push:
     branches: [main]
+    paths-ignore: ['docs/**', '**.md']
   pull_request:
+    paths-ignore: ['docs/**', '**.md']
   workflow_dispatch:
     inputs:
       publish:
@@ -46,7 +50,9 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: desktop
+      # already ran on the pull request that brought the change to main
       - name: Tests and clippy
+        if: github.event_name == 'pull_request'
         run: |
           cargo test --locked
           cargo clippy --locked --all-targets -- -D warnings
@@ -54,6 +60,7 @@ jobs:
       # With the secret TAURI_SIGNING_PRIVATE_KEY the installer is signed for the updater (a .sig next to it)
       # and the release gets latest.json; without it the build still works, the apps just are not offered it.
       - name: Build the installer
+        if: github.event_name != 'pull_request'
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -66,6 +73,7 @@ jobs:
           npx --yes @tauri-apps/cli@2.12.6 build --ci --bundles nsis \
             --config "{\"version\":\"0.1.${GEMSPACE_BUILD}\",\"bundle\":{\"createUpdaterArtifacts\":${SIGN}}}"
       - name: Collect
+        if: github.event_name != 'pull_request'
         env:
           REPO: ${{ github.repository }}
         run: |
@@ -86,6 +94,7 @@ jobs:
           fi
           ls -l ../out
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: github.event_name != 'pull_request'
         with:
           name: windows
           path: out/*
