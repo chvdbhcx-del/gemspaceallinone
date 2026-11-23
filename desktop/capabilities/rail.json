@@ -19,6 +19,9 @@
     "allow-feed-clear",
     "allow-chat-open",
     "allow-set-panel",
+    "allow-set-labels",
+    "allow-backup-export",
+    "allow-backup-import",
     "allow-check-update",
     "allow-install-update",
     "allow-hotkey"

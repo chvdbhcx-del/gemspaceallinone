@@ -11,6 +11,7 @@ let overlayKind = null; // null | 'add' | 'edit' | 'settings' | 'welcome' | 'upd
 let panelOpen = false; // the chat list column next to the rail
 let chatQuery = '';
 let chatUnreadOnly = false;
+let labelFilter = null; // label id the chat list is narrowed to
 let selectedChat = null; // 'account|name' of the chat opened from the list
 let feedFilter = null; // account id or null for all
 const feedSeen = new Set(); // feed rows already drawn, so only new ones slide in
@@ -171,25 +172,32 @@ function renderChats() {
   $('#feed-chips').innerHTML = [
     `<button class="chip${!feedFilter && !chatUnreadOnly ? ' on' : ''}" data-k="all">Все</button>`,
     `<button class="chip${chatUnreadOnly ? ' on' : ''}" data-k="unread">Непрочитанные${unread ? ` <b class="u">${unread}</b>` : ''}</button>`,
-  ].concat(present.map((a) => `<button class="chip${feedFilter === a.id ? ' on' : ''}" data-a="${esc(a.id)}"><i style="background:${esc(a.color)}"></i>${esc(a.name)}</button>`)).join('');
+  ].concat((state.labels || []).map((l) => {
+    const n = rows.filter((r) => labelIds(r.account, r.name).includes(l.id)).length;
+    return `<button class="chip tag-chip${labelFilter === l.id ? ' on' : ''}" data-l="${esc(l.id)}" title="Правый клик: изменить или удалить"><i class="sq" style="background:${esc(l.color)}"></i>${esc(l.name)}${n ? ` <b>${n}</b>` : ''}</button>`;
+  })).concat(present.map((a) => `<button class="chip${feedFilter === a.id ? ' on' : ''}" data-a="${esc(a.id)}"><i style="background:${esc(a.color)}"></i>${esc(a.name)}</button>`)).join('');
+  if (labelFilter && !(state.labels || []).some((l) => l.id === labelFilter)) labelFilter = null;
   $('#feed-chips').querySelectorAll('.chip').forEach((c) => {
     c.onclick = () => {
-      if (c.dataset.k === 'all') { feedFilter = null; chatUnreadOnly = false; }
+      if (c.dataset.k === 'all') { feedFilter = null; chatUnreadOnly = false; labelFilter = null; }
       else if (c.dataset.k === 'unread') chatUnreadOnly = !chatUnreadOnly;
+      else if (c.dataset.l) labelFilter = labelFilter === c.dataset.l ? null : c.dataset.l;
       else feedFilter = feedFilter === c.dataset.a ? null : c.dataset.a;
       chatSeen.clear(); renderFeed();
     };
+    if (c.dataset.l) c.oncontextmenu = (e) => { e.preventDefault(); labelMenu(c.dataset.l); };
   });
   $('#feed-clear').hidden = true;
   const missing = state.accounts.filter((a) => !(lists[a.id] || []).length).map((a) => a.name);
   $('#feed-note').textContent = (missing.length ? `Пока без списка: ${missing.join(', ').replace(/\.$/, '')}. Чаты аккаунта появятся, когда он загрузится. ` : '')
-    + 'Hovi Space только читает список, который показывает страница Gem Space, и никуда его не отправляет.';
+    + 'Правый клик по чату ставит метки. Hovi Space только читает список, который показывает страница Gem Space, и никуда его не отправляет.';
   const q = chatQuery.trim().toLowerCase();
-  rows = rows.filter((r) => (!feedFilter || r.account === feedFilter) && (!chatUnreadOnly || r.unread) && (!q || r.name.toLowerCase().includes(q)));
+  rows = rows.filter((r) => (!feedFilter || r.account === feedFilter) && (!chatUnreadOnly || r.unread) && (!q || r.name.toLowerCase().includes(q))
+    && (!labelFilter || labelIds(r.account, r.name).includes(labelFilter)));
   rows.sort((a, b) => (b.at - a.at) || (a.account === b.account ? a.i - b.i : 0));
   if (!rows.length) {
-    box.innerHTML = q || chatUnreadOnly
-      ? `<div class="feed-empty"><b>${q ? 'Ничего не найдено' : 'Непрочитанных нет'}</b></div>`
+    box.innerHTML = q || chatUnreadOnly || labelFilter
+      ? `<div class="feed-empty"><b>${q ? 'Ничего не найдено' : labelFilter ? 'С этой меткой чатов нет' : 'Непрочитанных нет'}</b>${labelFilter && !q ? '<span>Метка ставится правым кликом по чату.</span>' : ''}</div>`
       : `<div class="feed-empty"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>
       <b>Список чатов ещё не загрузился</b><span>Он появится, когда откроются страницы аккаунтов. Если не появляется совсем, значит Gem Space поменял страницу, напишите нам.</span></div>`;
     return;
@@ -203,7 +211,7 @@ function renderChats() {
       : `<span class="cav" style="background:${chatColor(c.name)}">${esc(ci)}</span>`;
     return `<button class="gs-row${fresh ? ' new' : ''}${c.unread ? ' unread' : ''}${selectedChat === key ? ' selected' : ''}" data-a="${esc(c.account)}" data-n="${esc(c.name)}" title="${esc(c.name)} · ${esc(a.name)}">
       <span class="cav-wrap">${ava}<i class="acc-dot" style="background:${esc(a.color)}">${esc(initials(a.name).slice(0, 1))}</i></span>
-      <span class="gs-main"><span class="gs-top"><span class="gs-name">${esc(c.name)}</span><span class="gs-time">${esc(c.time)}</span></span>
+      <span class="gs-main"><span class="gs-top"><span class="gs-name">${esc(c.name)}</span>${tagsHtml(c.account, c.name)}<span class="gs-time">${esc(c.time)}</span></span>
       <span class="gs-bottom"><span class="gs-prev">${esc(c.preview || (c.unread ? 'Новое сообщение' : ''))}</span>${c.unread ? `<span class="cnt">${c.unread > 999 ? '999+' : c.unread}</span>` : ''}</span></span></button>`;
   }).join('');
   rows.forEach((c) => chatSeen.add(c.account + '|' + c.name));
@@ -215,7 +223,47 @@ function renderChats() {
       r.classList.add('selected');
       try { await invoke('chat_open', { account: r.dataset.a, name: r.dataset.n }); } catch (e) { alertErr(e); }
     };
+    r.oncontextmenu = (e) => { e.preventDefault(); chatMenu(r.dataset.a, r.dataset.n); };
   });
+}
+
+// ---------- labels on chats: kept by Rust in state.json, edited here ----------
+const labelIds = (account, name) => ((state.chat_labels || {})[account + '|' + name]) || [];
+function tagsHtml(account, name) {
+  const ls = labelIds(account, name).map((id) => (state.labels || []).find((l) => l.id === id)).filter(Boolean);
+  if (!ls.length) return '';
+  const shown = ls.slice(0, 1).map((l) => `<span class="tag" style="--c:${esc(l.color)}">${esc(l.name)}</span>`).join('');
+  return `<span class="tags">${shown}${ls.length > 1 ? `<span class="tag more">+${ls.length - 1}</span>` : ''}</span>`;
+}
+async function saveLabels(labels, map) {
+  state.labels = labels; state.chat_labels = map;
+  renderFeed();
+  try { await invoke('set_labels', { labels, chatLabels: map }); } catch (e) { alertErr(e); }
+}
+function toggleLabel(key, id) {
+  const map = { ...(state.chat_labels || {}) };
+  const cur = map[key] || [];
+  map[key] = cur.includes(id) ? cur.filter((x) => x !== id) : cur.concat(id);
+  if (!map[key].length) delete map[key];
+  saveLabels(state.labels || [], map);
+}
+async function chatMenu(account, name) {
+  const key = account + '|' + name;
+  const has = labelIds(account, name);
+  const items = (state.labels || []).map((l) => ({ id: 'l-' + l.id, text: l.name, checked: has.includes(l.id), action: () => toggleLabel(key, l.id) }));
+  if (items.length) items.push({ item: 'Separator' });
+  items.push({ id: 'new-label', text: 'Новая метка…', action: () => openOverlay('label', { key }) });
+  const menu = await Menu.new({ items });
+  await menu.popup();
+}
+async function labelMenu(id) {
+  const l = (state.labels || []).find((x) => x.id === id);
+  if (!l) return;
+  const menu = await Menu.new({ items: [
+    { id: 'edit', text: 'Изменить…', action: () => openOverlay('label', { label: l }) },
+    { id: 'delete', text: 'Удалить метку', action: () => saveLabels((state.labels || []).filter((x) => x.id !== id), state.chat_labels || {}) },
+  ] });
+  await menu.popup();
 }
 
 function renderFeed() {
@@ -306,6 +354,8 @@ const KEYS_PATH = 'M20 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2
 const SIZE_PATH = 'M9 4v3h5v12h3V7h5V4zm-6 8h3v7h3v-7h3V9H3z';
 const SCALES = [80, 90, 100, 110, 125, 150];
 const GEAR_PATH = 'M19.4 13a7.8 7.8 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.3 7.3 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.3 7.3 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.8 7.8 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.3 7.3 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.3 7.3 0 0 0 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z';
+const TAG_PATH = 'M21.4 11.6 12.4 2.6A2 2 0 0 0 11 2H4a2 2 0 0 0-2 2v7a2 2 0 0 0 .6 1.4l9 9a2 2 0 0 0 2.8 0l7-7a2 2 0 0 0 0-2.8zM6.5 8a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z';
+const SAVE_PATH = 'M17 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7zm-5 16a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm3-10H5V5h10z';
 const icon = (d) => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${d}"/></svg>`;
 
 // Colors and the name drive the big avatar on top, so the tile is seen before it is made.
@@ -363,7 +413,7 @@ async function openOverlay(kind, a) {
   await invoke('set_overlay', { open: true });
   $('#overlay').hidden = false;
   $('#overlay').classList.toggle('welcome-mode', kind === 'welcome');
-  $('#overlay').classList.toggle('form-mode', kind === 'add' || kind === 'edit' || kind === 'remove' || kind === 'settings');
+  $('#overlay').classList.toggle('form-mode', kind === 'add' || kind === 'edit' || kind === 'remove' || kind === 'settings' || kind === 'label');
   const body = $('#ov-body');
   $('#ov-close').hidden = kind === 'welcome';
   if (kind === 'welcome') {
@@ -375,14 +425,59 @@ async function openOverlay(kind, a) {
       <p class="w-sub">Все ваши аккаунты Gem Space в одном окне</p>
       <div class="features">
         ${f('M12 1 3 5v6c0 5.5 3.8 10.7 9 12 5.2-1.3 9-6.5 9-12V5zm0 6a3 3 0 1 1 0 6 3 3 0 0 1 0-6zm0 14c-2.5-.8-4.6-2.7-5.6-5.1C7.8 14.6 10 14 12 14s4.2.6 5.6 1.9c-1 2.4-3.1 4.3-5.6 5.1z', 'Отдельный вход', 'У каждого аккаунта свои данные, как в разных браузерах')}
-        ${f('M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 12h-4a3 3 0 0 1-6 0H5V5h14z', 'Общая лента', 'Новые сообщения всех аккаунтов в одном списке')}
+        ${f('M4 4h12a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H9l-4 3.5V15H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm16 4a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-1v3l-3.5-3H10a2 2 0 0 1-1.6-.8L10 17h6a4 4 0 0 0 4-4z', 'Все чаты', 'Чаты всех аккаунтов в одном списке, с метками')}
         ${f('M12 22a2 2 0 0 0 2-2h-4a2 2 0 0 0 2 2zm6-6V11c0-3.1-1.6-5.6-4.5-6.3V4a1.5 1.5 0 0 0-3 0v.7C7.6 5.4 6 7.9 6 11v5l-2 2v1h16v-1z', 'Уведомления', 'С именем аккаунта, даже когда окно свёрнуто')}
         ${f('M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm6.9 6h-3a15.7 15.7 0 0 0-1.4-3.6A8 8 0 0 1 18.9 8zM12 4c.8 1.2 1.5 2.5 1.9 4h-3.8c.4-1.5 1.1-2.8 1.9-4zM4.3 14a8.2 8.2 0 0 1 0-4h3.4a16.5 16.5 0 0 0 0 4zm.8 2h3a15.7 15.7 0 0 0 1.4 3.6A8 8 0 0 1 5.1 16zm3-8h-3a8 8 0 0 1 4.4-3.6C8 5.6 7.6 6.8 8.1 8zM12 20c-.8-1.2-1.5-2.5-1.9-4h3.8c-.4 1.5-1.1 2.8-1.9 4zm2.3-6H9.7a14.7 14.7 0 0 1 0-4h4.6a14.7 14.7 0 0 1 0 4zm.3 5.6c.6-1.1 1.1-2.3 1.4-3.6h3a8 8 0 0 1-4.4 3.6zm1.7-5.6a16.5 16.5 0 0 0 0-4h3.4a8.2 8.2 0 0 1 0 4z', 'Свой прокси', 'SOCKS5 или HTTP отдельно для каждого аккаунта')}
       </div>
       <button class="btn primary big" id="w-add">Добавить первый аккаунт</button>
+      <button class="btn ghost" id="w-restore">Восстановить из резервной копии</button>
       <p class="w-note">Откроется обычная веб-версия Gem Space, вход по номеру телефона, как всегда.<br>Hovi Space ничего не отправляет на свои серверы.</p>
     </div>`;
     $('#w-add').onclick = () => openOverlay('add');
+    $('#w-restore').onclick = async () => {
+      try {
+        const res = await invoke('backup_import');
+        if (!res) return;
+        apply(await invoke('get_state'));
+        if (state.accounts.length) { await closeOverlay(); if (!state.active) invoke('switch_account', { id: state.accounts[0].id }).catch(alertErr); }
+      } catch (e) { alertErr(e); }
+    };
+  } else if (kind === 'label') {
+    const l = a && a.label;
+    const color = l ? l.color : COLORS[(state.labels || []).length % COLORS.length];
+    $('#ov-title').textContent = '';
+    body.innerHTML = `<div class="acc-form">
+      <div class="af-hero"><span class="af-ava tag-ava" id="af-ava" style="background:${esc(color)}">${icon(TAG_PATH)}</span>
+        <h1>${l ? 'Метка' : 'Новая метка'}</h1><p>Метки видны только вам, в этом окне. По ним можно отфильтровать «Все чаты».</p></div>
+      <div class="af-card">
+        <label class="af-field"><span>Название</span><input type="text" id="f-name" maxlength="30" value="${esc(l ? l.name : '')}" placeholder="Например, Клиенты или Ждут оплату"></label>
+        <div class="af-field"><span>Цвет</span>${colorPicker(color)}</div>
+      </div>
+      <div class="err"></div>
+      <button class="btn primary big wide" id="f-ok">${l ? 'Сохранить' : 'Создать'}</button>
+      <button class="btn ghost wide" id="f-cancel">Отмена</button></div>`;
+    body.querySelectorAll('.swatch').forEach((sw) => {
+      sw.onclick = () => { body.querySelectorAll('.swatch').forEach((x) => x.classList.remove('on')); sw.classList.add('on'); $('#af-ava').style.background = sw.dataset.c; };
+    });
+    $('#f-name').focus();
+    const ok = async () => {
+      const name = $('#f-name').value.trim();
+      if (!name) { $('#f-name').focus(); return; }
+      const c = ($('.swatch.on') || {}).dataset?.c || COLORS[0];
+      let labels = (state.labels || []).slice();
+      let map = { ...(state.chat_labels || {}) };
+      if (l) labels = labels.map((x) => (x.id === l.id ? { ...x, name, color: c } : x));
+      else {
+        if (labels.length >= 30) { body.querySelector('.err').textContent = 'Меток не больше 30'; return; }
+        const id = 'l' + Date.now().toString(36);
+        labels.push({ id, name, color: c });
+        if (a && a.key) map[a.key] = (map[a.key] || []).concat(id);
+      }
+      await saveLabels(labels, map);
+      closeOverlay();
+    };
+    $('#f-ok').onclick = ok;
+    $('#f-name').onkeydown = (e) => { if (e.key === 'Enter') ok(); };
   } else if (kind === 'add') {
     $('#ov-title').textContent = '';
     body.innerHTML = accountForm(null);
@@ -471,6 +566,11 @@ async function openOverlay(kind, a) {
         <div class="set-row set-col"><div class="set-head"><span class="af-ic">${icon(SIZE_PATH)}</span><span class="af-txt"><b>Размер интерфейса</b><small>Панель аккаунтов и страницы Gem Space</small></span></div>
           <div class="seg" id="s-scale">${SCALES.map((v) => `<button type="button" data-v="${v}" class="${v === (s.ui_scale || 100) ? 'on' : ''}">${v}%</button>`).join('')}<span class="seg-pill"></span></div></div>
       </div>
+      <div class="set-label">Резервная копия</div>
+      <div class="af-card set-card">
+        <div class="set-row"><span class="af-ic">${icon(SAVE_PATH)}</span><span class="af-txt"><b>Аккаунты, настройки и метки</b><small id="s-backup-res">Названия, цвета, прокси и порядок аккаунтов. Входы в файл не попадают: на новом компьютере в аккаунты нужно войти заново</small></span></div>
+        <div class="set-row set-btns"><button class="btn small" id="s-export">Сохранить в файл</button><button class="btn small" id="s-import">Восстановить из файла</button></div>
+      </div>
       <div class="set-label">Обновления</div>
       <div class="af-card set-card">
         <div class="set-row"><span class="af-ic">${icon(REFRESH_PATH)}</span><span class="af-txt"><b>Версия ${esc(state.version || '')}</b><small id="s-check-res">Проверяются сами раз в несколько часов</small></span>
@@ -516,6 +616,21 @@ async function openOverlay(kind, a) {
       };
       await invoke('set_settings', { settings });
       closeOverlay();
+    };
+    $('#s-export').onclick = async () => {
+      try {
+        const path = await invoke('backup_export');
+        if (path) $('#s-backup-res').textContent = 'Сохранено: ' + path;
+      } catch (e) { $('#s-backup-res').textContent = 'Не удалось сохранить: ' + (typeof e === 'string' ? e : (e && e.message) || e); }
+    };
+    $('#s-import').onclick = async () => {
+      try {
+        const res = await invoke('backup_import');
+        if (!res) return;
+        apply(await invoke('get_state'));
+        await openOverlay('settings');
+        $('#s-backup-res').textContent = res;
+      } catch (e) { $('#s-backup-res').textContent = 'Не удалось восстановить: ' + (typeof e === 'string' ? e : (e && e.message) || e); }
     };
     $('#s-check').onclick = async () => {
       const res = $('#s-check-res');

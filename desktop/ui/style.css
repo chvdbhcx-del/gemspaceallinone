@@ -355,3 +355,14 @@ div.set-row { cursor: default; }
 #panel .feed-row .ava { width: 48px; height: 48px; font-size: 16px; }
 #panel .fr-body { -webkit-line-clamp: 1; }
 #panel #feed-note { font-size: 12px; padding-top: 8px; border-top: 1px solid var(--line); }
+/* labels on chats */
+.tags { display: inline-flex; gap: 4px; flex: none; max-width: 45%; overflow: hidden; }
+.tag { --c: var(--accent); font-size: 11px; font-weight: 800; line-height: 18px; padding: 0 7px; border-radius: 6px; white-space: nowrap;
+  color: var(--c); background: color-mix(in srgb, var(--c) 20%, transparent); overflow: hidden; text-overflow: ellipsis; max-width: 110px; }
+.tag.more { --c: var(--muted); }
+.chip i.sq { border-radius: 3px; }
+.tag-ava svg { width: 34px; height: 34px; fill: #fff; }
+.set-btns { gap: 8px; padding-top: 0; }
+.set-btns .btn { flex: 1; }
+.gs-top .gs-name { flex: 0 1 auto; }
+.gs-top .gs-time { margin-left: auto; }

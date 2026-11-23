@@ -130,6 +130,41 @@ class MainActivity : AppCompatActivity() {
 
     private val askNotifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
+    // "Резервная копия" in settings: the system file picker, so the file goes wherever the user wants (Files, Drive)
+    private val backupSave = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri == null) return@registerForActivityResult
+        try {
+            contentResolver.openOutputStream(uri, "wt")?.use {
+                it.write(Backup.write(store.accounts, store.settings, store.labels, store.chatLabels).toByteArray())
+            }
+            Toast.makeText(this, "Резервная копия сохранена", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Не удалось сохранить: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private val backupOpen = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@registerForActivityResult
+        try {
+            val text = contentResolver.openInputStream(uri)?.use { inp ->
+                val bytes = inp.readBytes()
+                if (bytes.size > 5_000_000) throw IllegalArgumentException("Файл слишком большой для резервной копии Hovi Space")
+                String(bytes)
+            } ?: return@registerForActivityResult
+            val (added, updated) = Backup.restore(text, store.accounts, store.settings, store.labels, store.chatLabels) { store.newId() }
+            store.save()
+            views.values.forEach { it.settings.textZoom = store.settings.uiScale }
+            enforceSleep(); updateKeepAlive(); render(); refreshList()
+            AlertDialog.Builder(this)
+                .setTitle("Восстановлено")
+                .setMessage("Добавлено аккаунтов: $added, обновлено: $updated. В новые аккаунты нужно войти заново, по номеру телефона.")
+                .setPositiveButton("Понятно", null)
+                .show()
+        } catch (e: Exception) {
+            Toast.makeText(this, e.message ?: "Не удалось прочитать файл", Toast.LENGTH_LONG).show()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         store = Store(this)
@@ -272,6 +307,11 @@ class MainActivity : AppCompatActivity() {
             addView(TextView(context).apply {
                 text = "Откроется обычная веб-версия Gem Space, вход по номеру телефона, как всегда."
                 textSize = 12f; gravity = Gravity.CENTER; setTextColor(muted); setPadding(dp(8), dp(12), dp(8), 0)
+            })
+            addView(TextView(context).apply {
+                text = "Восстановить из резервной копии"; textSize = 14f; typeface = fontBold; gravity = Gravity.CENTER
+                setTextColor(muted); setPadding(dp(8), dp(14), dp(8), dp(8))
+                setOnClickListener { backupOpen.launch(arrayOf("application/json", "application/octet-stream", "text/plain")) }
             })
         }
         welcome = ScrollView(this).apply {
@@ -533,16 +573,24 @@ class MainActivity : AppCompatActivity() {
 
     private fun fillChats() {
         val muted = ContextCompat.getColor(this, R.color.muted)
-        if (chatFilter != null && chatFilter != UNREAD && store.find(chatFilter!!) == null) chatFilter = null
+        if (chatFilter != null && chatFilter != UNREAD && chatFilter?.startsWith(LABEL) != true && store.find(chatFilter!!) == null) chatFilter = null
         val all = store.accounts.flatMap { a -> (chats[a.id] ?: emptyList()).mapIndexed { i, c -> Triple(a, c, i) } }
             .sortedWith(compareByDescending<Triple<Account, ChatRow, Int>> { ChatRow.timeOf(it.second.time) }.thenBy { it.third })
         val unreadN = all.count { it.second.unread > 0 }
         addChip(chip("Все", 0, null, chatFilter == null) { chatFilter = null; fillList() })
         addChip(chip("Непрочитанные", unreadN, null, chatFilter == UNREAD) { chatFilter = UNREAD; fillList() })
+        if (chatFilter?.startsWith(LABEL) == true && store.labels.none { LABEL + it.id == chatFilter }) chatFilter = null
+        for (l in store.labels) {
+            val n = all.count { (a, c, _) -> l.id in labelIds(a.id, c.name) }
+            addChip(chip(l.name, n, l.color, chatFilter == LABEL + l.id) { chatFilter = LABEL + l.id; fillList() }.apply {
+                setOnLongClickListener { editLabel(l, null); true }
+            })
+        }
         for (a in store.accounts) addChip(chip(a.name, 0, a.color, chatFilter == a.id) { chatFilter = a.id; fillList() })
         val q = listQuery.trim().lowercase()
         val rows = all.filter { (a, c, _) ->
-            (chatFilter == null || (chatFilter == UNREAD && c.unread > 0) || chatFilter == a.id) &&
+            (chatFilter == null || (chatFilter == UNREAD && c.unread > 0) || chatFilter == a.id ||
+                (chatFilter?.startsWith(LABEL) == true && chatFilter!!.removePrefix(LABEL) in labelIds(a.id, c.name))) &&
                 (q.isEmpty() || c.name.lowercase().contains(q) || c.preview.lowercase().contains(q))
         }
         if (rows.isEmpty()) {
@@ -551,6 +599,7 @@ class MainActivity : AppCompatActivity() {
                     all.isEmpty() -> "Список чатов ещё не загрузился. Он появится, когда откроются страницы аккаунтов."
                     q.isNotEmpty() -> "Ничего не нашлось."
                     chatFilter == UNREAD -> "Всё прочитано."
+                    chatFilter?.startsWith(LABEL) == true -> "С этой меткой чатов нет. Метка ставится долгим нажатием на чат."
                     else -> "У этого аккаунта пока нет чатов в списке."
                 }
                 setTextColor(muted); setPadding(dp(16), dp(20), dp(16), dp(12)); gravity = Gravity.CENTER
@@ -560,7 +609,7 @@ class MainActivity : AppCompatActivity() {
         val missing = store.accounts.filter { chats[it.id].isNullOrEmpty() }
         listRows.addView(TextView(this).apply {
             text = (if (missing.isNotEmpty() && all.isNotEmpty()) "Пока без списка: ${missing.joinToString(", ") { it.name }}. " else "") +
-                "Hovi Space только читает список, который показывает страница Gem Space, и никуда его не отправляет."
+                "Долгое нажатие на чат ставит метки. Hovi Space только читает список, который показывает страница Gem Space, и никуда его не отправляет."
             textSize = 12f; setTextColor(muted); setPadding(dp(12), dp(12), dp(12), 0)
         })
     }
@@ -584,6 +633,7 @@ class MainActivity : AppCompatActivity() {
                 backToList = true
                 openChat(a.id, c.name)
             }
+            setOnLongClickListener { chatLabelsDialog(a, c.name); true }
         }
         val ava = FrameLayout(this)
         val circle = TextView(this).apply {
@@ -614,7 +664,15 @@ class MainActivity : AppCompatActivity() {
         top.addView(TextView(this).apply {
             text = c.name; textSize = 16f; typeface = fontHeavy; setTextColor(fg); maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
-        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { width = 0 })
+        val tags = labelIds(a.id, c.name).mapNotNull { id -> store.labels.firstOrNull { it.id == id } }
+        if (tags.isNotEmpty()) top.addView(TextView(this).apply {
+            text = tags[0].name + if (tags.size > 1) "  +${tags.size - 1}" else ""
+            textSize = 11f; typeface = fontHeavy; setTextColor(tags[0].color); maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END; maxWidth = dp(120)
+            setPadding(dp(7), dp(1), dp(7), dp(1))
+            background = GradientDrawable().apply { cornerRadius = dp(6).toFloat(); setColor((tags[0].color and 0x00FFFFFF) or 0x33000000) }
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(6) })
         top.addView(TextView(this).apply {
             text = c.time; textSize = 12f; setTextColor(if (c.unread > 0) accent else muted); setPadding(dp(8), 0, 0, 0)
             if (c.unread > 0) typeface = fontBold
@@ -718,6 +776,81 @@ class MainActivity : AppCompatActivity() {
             text = "Лента собирается из уведомлений аккаунтов, пока Hovi Space работает. Спящие аккаунты сюда не пишут. Сообщения аккаунта уходят из ленты, когда в нём всё прочитано."
             textSize = 12f; setTextColor(muted); setPadding(dp(12), dp(12), dp(12), 0)
         })
+    }
+
+    // ---------- labels on chats, kept in Store on this phone ----------
+
+    private fun labelIds(account: String, name: String): List<String> = store.chatLabels["$account|$name"] ?: emptyList()
+
+    private fun saveLabels() {
+        Backup.clean(store.labels, store.chatLabels)
+        store.save()
+        refreshList()
+    }
+
+    /** Long press on a chat: tick its labels, or make a new one. */
+    private fun chatLabelsDialog(a: Account, name: String) {
+        val key = "${a.id}|$name"
+        val names = store.labels.map { it.name }.toTypedArray()
+        val checked = store.labels.map { it.id in labelIds(a.id, name) }.toBooleanArray()
+        val b = AlertDialog.Builder(this).setTitle(name)
+        if (names.isEmpty()) b.setMessage("Меток пока нет. Метки видны только вам, по ним можно отфильтровать «Все чаты».")
+        else b.setMultiChoiceItems(names, checked) { _, i, on ->
+            val slot = store.chatLabels.getOrPut(key) { mutableListOf() }
+            val id = store.labels[i].id
+            if (on && id !in slot) slot += id else if (!on) slot.remove(id)
+            if (slot.isEmpty()) store.chatLabels.remove(key)
+            saveLabels()
+        }
+        b.setPositiveButton("Готово", null)
+            .setNeutralButton("Новая метка…") { _, _ -> editLabel(null, key) }
+            .show()
+    }
+
+    /** A label's name and colour; for an existing one also "Удалить". [assignTo] gets a new label at once. */
+    private fun editLabel(l: Label?, assignTo: String?) {
+        if (l == null && store.labels.size >= Backup.MAX_LABELS) {
+            Toast.makeText(this, "Меток не больше ${Backup.MAX_LABELS}", Toast.LENGTH_SHORT).show(); return
+        }
+        var color = l?.color ?: Store.COLORS[store.labels.size % Store.COLORS.size]
+        val input = EditText(this).apply {
+            setText(l?.name ?: ""); hint = "Например, Клиенты или Ждут оплату"; isSingleLine = true
+            filters = arrayOf(android.text.InputFilter.LengthFilter(30))
+        }
+        val swatches = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(14), 0, 0) }
+        fun paint() {
+            for (i in 0 until swatches.childCount) {
+                val v = swatches.getChildAt(i)
+                (v.background as GradientDrawable).setStroke(dp(3), if (Store.COLORS[i] == color) ContextCompat.getColor(this, R.color.fg) else Color.TRANSPARENT)
+            }
+        }
+        Store.COLORS.forEach { c ->
+            swatches.addView(View(this).apply {
+                background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(c) }
+                setOnClickListener { color = c; paint() }
+            }, LinearLayout.LayoutParams(dp(30), dp(30)).apply { marginEnd = dp(6) })
+        }
+        paint()
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(22), dp(8), dp(22), 0)
+            addView(input); addView(HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(swatches) })
+        }
+        val b = AlertDialog.Builder(this)
+            .setTitle(if (l == null) "Новая метка" else "Метка")
+            .setView(box)
+            .setPositiveButton(if (l == null) "Создать" else "Сохранить") { _, _ ->
+                val name = input.text.toString().trim()
+                if (name.isEmpty()) return@setPositiveButton
+                if (l != null) { l.name = name; l.color = color } else {
+                    val id = "l" + System.currentTimeMillis().toString(36)
+                    store.labels += Label(id, name, color)
+                    if (assignTo != null) store.chatLabels.getOrPut(assignTo) { mutableListOf() }.add(id)
+                }
+                saveLabels()
+            }
+            .setNegativeButton("Отмена", null)
+        if (l != null) b.setNeutralButton("Удалить") { _, _ -> store.labels.remove(l); saveLabels() }
+        b.show()
     }
 
     /** Opens a chat of "Все чаты": switches to its account and clicks the chat's row in the page. */
@@ -1062,6 +1195,16 @@ class MainActivity : AppCompatActivity() {
         val seg = sheet.segmented(listOf(80, 90, 100, 110, 125, 150), scale) { scale = it }
         sheet.row(c4, R.drawable.ic_size, "Размер текста в чатах", "Страницы Gem Space. Панель аккаунтов следует размеру шрифта Android", View(this))
         c4.addView(seg, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)).apply { bottomMargin = dp(14) })
+        sheet.section("Резервная копия")
+        val c5 = sheet.card()
+        sheet.row(c5, R.drawable.ic_shield, "Аккаунты, настройки и метки",
+            "Названия, цвета и порядок аккаунтов. Входы в файл не попадают: на новом телефоне в аккаунты нужно войти заново", View(this))
+        val btns = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 0, 0, dp(14)) }
+        btns.addView(sheet.smallButton("Сохранить в файл") { backupSave.launch("Hovi Space ${java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())}.json") }.apply { gravity = Gravity.CENTER },
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(8) })
+        btns.addView(sheet.smallButton("Восстановить") { sheet.dismiss(); backupOpen.launch(arrayOf("application/json", "application/octet-stream", "text/plain")) }.apply { gravity = Gravity.CENTER },
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        c5.addView(btns)
         sheet.section("Обновления")
         val c3 = sheet.card()
         val check = sheet.smallButton("Проверить") { Updater.checkNow(this) }
@@ -1398,6 +1541,7 @@ class MainActivity : AppCompatActivity() {
         attention.remove(a.id)
         feed.clear(a.id)
         chats.remove(a.id)
+        store.chatLabels.keys.removeAll { it.startsWith("${a.id}|") }
         Notifier.cancel(this, a.id)
         if (multiProfile) {
             // the profile can be deleted only once no WebView uses it; the destroy above is processed on the next frames
@@ -1456,6 +1600,8 @@ class MainActivity : AppCompatActivity() {
     companion object {
         const val GEM_URL = "https://web.gemspace.com/"
         private const val UNREAD = "\u0000unread"
+        /** chatFilter of a label: LABEL + its id */
+        private const val LABEL = "\u0000label:"
         private val CHAT_COLORS = listOf("#E53935", "#F4511E", "#FB8C00", "#43A047", "#00897B", "#039BE5", "#3949AB", "#8E24AA", "#D81B60", "#6D4C41")
 
         // geometry of the bar tiles, dp
