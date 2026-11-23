@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Gemspace Android demo</title>
+<!-- Replica of the Android app's account strip (MainActivity.render, same tile geometry) for screenshots; the page below is a demo chat. -->
+<style>
+:root{--bar:#e6eaee;--fg:#17212b;--muted:#5d6b78;--line:#c9d2da}
+html,body{margin:0;height:100%;font:14px/1.4 Roboto,"Segoe UI",system-ui,sans-serif;background:var(--bar);color:var(--fg);overflow:hidden}
+.status{height:28px;display:flex;justify-content:space-between;align-items:center;padding:0 18px;font-size:13px;font-weight:600}
+.bar{display:flex;align-items:flex-start;padding:4px 4px 2px}
+.strip{flex:1;display:flex;overflow:hidden;-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 24px),transparent)}
+.tile{position:relative;width:62px;height:66px;flex:none}
+.ava,.ic{position:absolute;left:9px;top:5px;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;box-sizing:border-box}
+.ava{color:#fff;font-weight:700;font-size:15px}
+.ring{position:absolute;left:5px;top:1px;width:52px;height:52px;border-radius:50%;border:2px solid #3aa0ff;box-sizing:border-box}
+.ic{border:1px solid var(--line);font-size:20px;color:var(--muted)}
+.sleep .ava{opacity:.55}
+.lbl{position:absolute;bottom:0;left:2px;right:2px;text-align:center;font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.on .lbl{color:var(--fg)}
+.badge{position:absolute;left:41px;top:1px;min-width:18px;height:18px;border-radius:9px;background:#3aa0ff;color:#fff;font-size:10px;font-weight:700;display:grid;place-items:center;padding:0 4px;box-sizing:border-box;border:2px solid var(--bar)}
+.dot{position:absolute;left:43px;top:4px;width:12px;height:12px;border-radius:50%;background:#3aa0ff;border:2px solid var(--bar);box-sizing:border-box}
+iframe{border:0;width:100%;height:calc(100% - 100px);display:block}
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center}
+.dlg{background:#fff;border-radius:6px;width:300px;padding:22px 22px 10px;box-shadow:0 10px 30px rgba(0,0,0,.3)}
+.dlg h3{margin:0 0 12px;font-size:19px;font-weight:500}
+.dlg .in{border-bottom:2px solid #3aa0ff;padding:8px 0;font-size:16px}
+.cs{display:flex;gap:6px;padding:14px 0 6px}.cs span{width:30px;height:30px;border-radius:50%;box-sizing:border-box}
+.cs .sel{border:3px solid var(--fg)}
+.btns{display:flex;justify-content:flex-end;gap:18px;padding:14px 0 6px;color:#3aa0ff;font-weight:600;text-transform:uppercase;font-size:13px}
+</style></head><body>
+<div class="status"><span>12:42</span><span>▲ ▮ 87%</span></div>
+<div class="bar"><div class="strip" id="strip"></div><div class="tile"><div class="ic">⚙</div><div class="lbl">Настройки</div></div></div>
+<iframe src="chat-phone.html"></iframe>
+<div class="scrim" id="scrim"><div class="dlg"><h3>Новый аккаунт</h3><div class="in">Розница</div>
+<div class="cs"><span style="background:#3aa0ff"></span><span style="background:#26a69a"></span><span style="background:#7e57c2"></span><span style="background:#ef5350"></span><span class="sel" style="background:#ffa726"></span><span style="background:#66bb6a"></span><span style="background:#ec407a"></span></div>
+<div class="btns"><span>Отмена</span><span>Добавить и войти</span></div></div></div>
+<script>
+const A=[['Продажи','#3aa0ff',4,0,1,1],['Поддержка','#26a69a',12,0,0,1],['Опт','#7e57c2',0,1,0,1],['Магазин','#ffa726',2,0,0,1],['Доставка','#ef5350',0,0,0,0],['Анна К.','#ec407a',0,0,0,0]];
+const s=document.getElementById('strip');
+for(const [n,c,u,att,on,awake] of A){const t=document.createElement('div');t.className='tile'+(on?' on':'')+(awake?'':' sleep');
+const i=n.trim().split(/\s+/);t.innerHTML=(on?'<div class="ring"></div>':'')+`<div class="ava" style="background:${c}">${(i[0][0]+(i[1]?i[1][0]:'')).toUpperCase()}</div><div class="lbl">${n}</div>`+(u?`<div class="badge">${u}</div>`:att?'<div class="dot"></div>':'');s.appendChild(t)}
+const add=document.createElement('div');add.className='tile';add.innerHTML='<div class="ic">+</div><div class="lbl">Добавить</div>';s.appendChild(add);
+if(location.search.includes('dialog'))document.getElementById('scrim').style.display='flex';
+</script></body></html>
