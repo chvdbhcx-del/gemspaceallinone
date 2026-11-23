@@ -1,7 +1,7 @@
 // README screenshots in demo mode, the way Hivogram's are made: the real rail UI (desktop/ui) fed with
 // made-up accounts (docs/demo/demo-state.js), a made-up chat where the app shows web.gemspace.com,
 // and a replica of the Android account strip. One dark theme; desktop 1440×900 @2x, phone 390×844 @3x.
-//   node docs/make-screens.js [d1,d2,d3,d4,d5,d6,a1,a2,a3,a4,a5]      (Playwright with Chromium)
+//   node docs/make-screens.js [d1,d2,d3,d4,d5,d6,d7,a1,a2,a3,a4,a5]      (Playwright with Chromium)
 //   python3 docs/make-grids.py                                   (Pillow) builds the captioned grids
 const fs = require('fs');
 const path = require('path');
@@ -44,6 +44,7 @@ async function shot(browser, key, file, opts, page, before) {
   await shot(b, 'd4', 'desktop-notify', D, 'docs/demo/desktop.html?toast');
   await shot(b, 'd5', 'desktop-settings', D, rail, (p) => p.click('#gear'));
   await shot(b, 'd6', 'desktop-feed', D, rail, (p) => p.click('#feed'));
+  await shot(b, 'd7', 'desktop-welcome', D, rail + '?empty');
   await shot(b, 'a1', 'android-main', P, 'docs/demo/phone.html');
   await shot(b, 'a2', 'android-add', P, 'docs/demo/phone.html?dialog');
   await shot(b, 'a3', 'android-menu', P, 'docs/demo/phone.html?menu');

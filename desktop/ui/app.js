@@ -204,13 +204,25 @@ async function openOverlay(kind, a) {
   await invoke('set_overlay', { open: true });
   $('#overlay').hidden = false;
   $('#overlay').classList.toggle('side', kind === 'feed');
+  $('#overlay').classList.toggle('welcome-mode', kind === 'welcome');
   const body = $('#ov-body');
   $('#ov-close').hidden = kind === 'welcome';
   if (kind === 'welcome') {
     $('#ov-title').textContent = '';
-    body.innerHTML = `<div class="empty"><img src="logo.png" alt=""><h1>Gemspace</h1>
-      <p>Все аккаунты Gem Space в одном окне. Каждый аккаунт живёт отдельно: свои данные, свой вход, свой прокси.</p>
-      <button class="btn primary" id="w-add">Добавить первый аккаунт</button></div>`;
+    const f = (icon, title, text) => `<div class="feature"><span class="f-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${icon}"/></svg></span><b>${title}</b><span>${text}</span></div>`;
+    body.innerHTML = `<div class="welcome">
+      <div class="w-logo"><img src="logo.png" alt=""></div>
+      <h1>Gemspace</h1>
+      <p class="w-sub">Все ваши аккаунты Gem Space в одном окне</p>
+      <div class="features">
+        ${f('M12 1 3 5v6c0 5.5 3.8 10.7 9 12 5.2-1.3 9-6.5 9-12V5zm0 6a3 3 0 1 1 0 6 3 3 0 0 1 0-6zm0 14c-2.5-.8-4.6-2.7-5.6-5.1C7.8 14.6 10 14 12 14s4.2.6 5.6 1.9c-1 2.4-3.1 4.3-5.6 5.1z', 'Отдельный вход', 'У каждого аккаунта свои данные, как в разных браузерах')}
+        ${f('M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 12h-4a3 3 0 0 1-6 0H5V5h14z', 'Общая лента', 'Новые сообщения всех аккаунтов в одном списке')}
+        ${f('M12 22a2 2 0 0 0 2-2h-4a2 2 0 0 0 2 2zm6-6V11c0-3.1-1.6-5.6-4.5-6.3V4a1.5 1.5 0 0 0-3 0v.7C7.6 5.4 6 7.9 6 11v5l-2 2v1h16v-1z', 'Уведомления', 'С именем аккаунта, даже когда окно свёрнуто')}
+        ${f('M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm6.9 6h-3a15.7 15.7 0 0 0-1.4-3.6A8 8 0 0 1 18.9 8zM12 4c.8 1.2 1.5 2.5 1.9 4h-3.8c.4-1.5 1.1-2.8 1.9-4zM4.3 14a8.2 8.2 0 0 1 0-4h3.4a16.5 16.5 0 0 0 0 4zm.8 2h3a15.7 15.7 0 0 0 1.4 3.6A8 8 0 0 1 5.1 16zm3-8h-3a8 8 0 0 1 4.4-3.6C8 5.6 7.6 6.8 8.1 8zM12 20c-.8-1.2-1.5-2.5-1.9-4h3.8c-.4 1.5-1.1 2.8-1.9 4zm2.3-6H9.7a14.7 14.7 0 0 1 0-4h4.6a14.7 14.7 0 0 1 0 4zm.3 5.6c.6-1.1 1.1-2.3 1.4-3.6h3a8 8 0 0 1-4.4 3.6zm1.7-5.6a16.5 16.5 0 0 0 0-4h3.4a8.2 8.2 0 0 1 0 4z', 'Свой прокси', 'SOCKS5 или HTTP отдельно для каждого аккаунта')}
+      </div>
+      <button class="btn primary big" id="w-add">Добавить первый аккаунт</button>
+      <p class="w-note">Откроется обычная веб-версия Gem Space, вход по номеру телефона, как всегда.<br>Gemspace ничего не отправляет на свои серверы.</p>
+    </div>`;
     $('#w-add').onclick = () => openOverlay('add');
   } else if (kind === 'add') {
     $('#ov-title').textContent = 'Новый аккаунт';

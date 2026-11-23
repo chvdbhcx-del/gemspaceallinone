@@ -62,6 +62,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var strip: LinearLayout
     private lateinit var pages: FrameLayout
     private lateinit var welcome: View
+    private lateinit var welcomeContent: LinearLayout
 
     /** loaded (awake) accounts; access order = least recently used first */
     private val views = LinkedHashMap<String, WebView>(16, 0.75f, true)
@@ -192,24 +193,67 @@ class MainActivity : AppCompatActivity() {
         root.addView(bar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         pages = FrameLayout(this).apply { setBackgroundColor(ContextCompat.getColor(context, R.color.page)) }
-        welcome = LinearLayout(this).apply {
+        welcomeContent = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setPadding(dp(32), dp(32), dp(32), dp(32))
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(24), dp(32), dp(24), dp(32))
+            val fg = ContextCompat.getColor(context, R.color.fg)
+            val muted = ContextCompat.getColor(context, R.color.muted)
+            addView(ImageView(context).apply {
+                setImageResource(R.mipmap.ic_launcher)
+                elevation = dp(10).toFloat()
+            }, LinearLayout.LayoutParams(dp(96), dp(96)).apply { bottomMargin = dp(14) })
             addView(TextView(context).apply {
-                text = "Gemspace"; textSize = 26f; typeface = fontHeavy; gravity = Gravity.CENTER
-                setTextColor(ContextCompat.getColor(context, R.color.fg))
+                text = "Gemspace"; textSize = 32f; typeface = fontHeavy; gravity = Gravity.CENTER; setTextColor(fg)
             })
             addView(TextView(context).apply {
-                text = "Все аккаунты Gem Space в одном приложении. Каждый аккаунт живёт отдельно: свои данные и свой вход."
-                gravity = Gravity.CENTER; setPadding(0, dp(12), 0, dp(20))
-                setTextColor(ContextCompat.getColor(context, R.color.muted))
+                text = "Все ваши аккаунты Gem Space в одном приложении"
+                textSize = 15f; typeface = fontBold; gravity = Gravity.CENTER; setTextColor(muted)
+                setPadding(0, dp(6), 0, dp(22))
             })
+            fun feature(icon: Int, title: String, body: String) = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(14), dp(12), dp(14), dp(12))
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(16).toFloat()
+                    setColor(ContextCompat.getColor(context, R.color.bar))
+                    setStroke(dp(1), ContextCompat.getColor(context, R.color.line))
+                }
+                addView(ImageView(context).apply {
+                    setImageResource(icon)
+                    setColorFilter(0xFF3AA0FF.toInt())
+                    setPadding(dp(9), dp(9), dp(9), dp(9))
+                    background = GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(0x2E3AA0FF) }
+                }, LinearLayout.LayoutParams(dp(38), dp(38)).apply { marginEnd = dp(14) })
+                addView(LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    addView(TextView(context).apply { text = title; textSize = 15f; typeface = fontHeavy; setTextColor(fg) })
+                    addView(TextView(context).apply { text = body; textSize = 13f; setTextColor(muted) })
+                }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            }
+            val rowParams = { LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(8) } }
+            addView(feature(R.drawable.ic_shield, "Отдельный вход", "У каждого аккаунта свои данные, как в разных браузерах"), rowParams())
+            addView(feature(R.drawable.ic_feed, "Общая лента", "Новые сообщения всех аккаунтов в одном списке"), rowParams())
+            addView(feature(R.drawable.ic_bell, "Уведомления", "С именем аккаунта, даже когда приложение закрыто"), rowParams())
+            addView(feature(R.drawable.ic_moon, "Бережёт память", "Давно не открытые аккаунты засыпают сами"), rowParams())
             addView(TextView(context).apply {
-                text = "Добавить первый аккаунт"; gravity = Gravity.CENTER
-                setTextColor(Color.WHITE); setPadding(dp(20), dp(12), dp(20), dp(12))
-                background = GradientDrawable().apply { cornerRadius = dp(10).toFloat(); setColor(0xFF3AA0FF.toInt()) }
+                text = "Добавить первый аккаунт"; gravity = Gravity.CENTER; textSize = 16f; typeface = fontHeavy
+                setTextColor(Color.WHITE); setPadding(dp(24), dp(15), dp(24), dp(15))
+                background = GradientDrawable().apply { cornerRadius = dp(14).toFloat(); setColor(0xFF3AA0FF.toInt()) }
+                elevation = dp(6).toFloat()
                 setOnClickListener { editAccount(null) }
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(14) })
+            addView(TextView(context).apply {
+                text = "Откроется обычная веб-версия Gem Space, вход по номеру телефона, как всегда."
+                textSize = 12f; gravity = Gravity.CENTER; setTextColor(muted); setPadding(dp(8), dp(12), dp(8), 0)
+            })
+        }
+        welcome = ScrollView(this).apply {
+            isFillViewport = true
+            visibility = View.GONE // render() fades it in with the features when there are no accounts
+            addView(FrameLayout(context).apply {
+                addView(welcomeContent, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
             })
         }
         pages.addView(welcome, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
@@ -484,6 +528,14 @@ class MainActivity : AppCompatActivity() {
         if (showWelcome && welcome.visibility != View.VISIBLE) {
             welcome.alpha = 0f
             welcome.animate().alpha(1f).setDuration(260).start()
+            // logo, title and features rise one after another
+            for (i in 0 until welcomeContent.childCount) {
+                val v = welcomeContent.getChildAt(i)
+                v.alpha = 0f
+                v.translationY = dp(14).toFloat()
+                v.animate().alpha(1f).translationY(0f).setStartDelay(60L * i).setDuration(360)
+                    .setInterpolator(android.view.animation.DecelerateInterpolator(2f)).start()
+            }
         }
         welcome.visibility = if (showWelcome) View.VISIBLE else View.GONE
         for ((id, wv) in views) {

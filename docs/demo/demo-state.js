@@ -30,6 +30,7 @@
     })(),
     version: '0.1.0',
   };
+  if (/[?&]empty/.test(location.search)) { state.accounts = []; state.active = null; state.feed = []; state.total_unread = 0; }
   var listeners = [];
   window.__TAURI__ = {
     core: {
