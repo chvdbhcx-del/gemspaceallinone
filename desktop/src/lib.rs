@@ -9,7 +9,7 @@ mod update;
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::webview::{NewWindowResponse, PageLoadEvent, PermissionKind, PermissionResponse, WebviewBuilder};
@@ -52,9 +52,10 @@ fn apply_scale(app: &AppHandle) {
 }
 const ACC_PREFIX: &str = "acc-";
 
-/// Injected into every account webview before the page's own scripts. It only reroutes the page's
-/// web notifications to Gemspace (so they carry the account name) and forwards account hotkeys.
-const INJECT_JS: &str = include_str!("inject.js");
+/// Injected into every account webview before the page's own scripts. It reroutes the page's web
+/// notifications to Gemspace (so they carry the account name), forwards account hotkeys and reads the
+/// chat list the page shows for "Все чаты" (shared/chats.js). It never types or sends anything.
+const INJECT_JS: &str = concat!(include_str!("inject.js"), "\n", include_str!("../../shared/chats.js"));
 
 #[derive(Default)]
 pub(crate) struct Live {
@@ -69,6 +70,35 @@ pub(crate) struct Live {
     feed: Feed,
     /// a newer version found by the updater (update.rs)
     pub(crate) update: Option<update::UpdateView>,
+    /// the chat list each awake account's page shows, for "Все чаты"
+    chats: HashMap<String, Vec<ChatRow>>,
+}
+
+/// One row of an account's chat list, as its page shows it (shared/chats.js).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+struct ChatRow {
+    name: String,
+    #[serde(default)]
+    time: String,
+    #[serde(default)]
+    preview: String,
+    #[serde(default)]
+    unread: u32,
+    #[serde(default)]
+    avatar: String,
+}
+
+impl ChatRow {
+    /// Keeps what the page sends to sane sizes; an avatar must be an https URL.
+    fn clean(mut self) -> ChatRow {
+        self.name = self.name.chars().take(80).collect();
+        self.time = self.time.chars().take(16).collect();
+        self.preview = self.preview.chars().take(160).collect();
+        if !self.avatar.starts_with("https://") || self.avatar.len() > 500 {
+            self.avatar.clear();
+        }
+        self
+    }
 }
 
 pub(crate) struct AppState {
@@ -92,6 +122,7 @@ struct StateView {
     settings: Settings,
     total_unread: u32,
     feed: Vec<FeedItem>,
+    chats: HashMap<String, Vec<ChatRow>>,
     update: Option<update::UpdateView>,
     version: String,
 }
@@ -133,6 +164,7 @@ fn snapshot(app: &AppHandle) -> StateView {
         settings: store.settings.clone(),
         total_unread: total,
         feed: live.feed.items(),
+        chats: live.chats.clone(),
         update: live.update.clone(),
         version: app.package_info().version.to_string(),
     }
@@ -470,6 +502,7 @@ async fn remove_account(app: AppHandle, id: String) -> Result<(), String> {
         live.unread.remove(&id);
         live.attention.remove(&id);
         live.feed.clear(Some(&id));
+        live.chats.remove(&id);
         if store.active.as_deref() == Some(id.as_str()) {
             store.active = None;
             store.accounts.first().map(|a| a.id.clone())
@@ -547,6 +580,16 @@ async fn feed_open(app: AppHandle, key: u64) -> Result<(), String> {
         if let Some(wv) = app.get_webview(&label_of(&item.account)) {
             let _ = wv.eval(format!("window.__gemspaceOpen && window.__gemspaceOpen('{}')", item.nid));
         }
+    }
+    Ok(())
+}
+
+/// Opens a chat from "Все чаты": switches to its account and clicks the chat's row in the page.
+#[tauri::command]
+async fn chat_open(app: AppHandle, account: String, name: String) -> Result<(), String> {
+    switch_to(&app, &account)?;
+    if let (Some(wv), Ok(js_name)) = (app.get_webview(&label_of(&account)), serde_json::to_string(&name)) {
+        let _ = wv.eval(format!("window.__gemspaceOpenChat && window.__gemspaceOpenChat({js_name})"));
     }
     Ok(())
 }
@@ -663,6 +706,22 @@ async fn acc_notify(app: AppHandle, webview: Webview, title: String, body: Strin
     }
 }
 
+/// The chat list an account's page shows (read only, see shared/chats.js).
+#[tauri::command]
+async fn acc_chats(app: AppHandle, webview: Webview, chats: Vec<ChatRow>) {
+    let Some(id) = id_of(webview.label()).map(str::to_string) else { return };
+    let rows: Vec<ChatRow> = chats.into_iter().take(40).map(ChatRow::clean).collect();
+    let changed = {
+        let st = app.state::<AppState>();
+        let known = st.store.lock().unwrap().accounts.iter().any(|a| a.id == id);
+        let mut live = st.live.lock().unwrap();
+        known && live.chats.get(&id) != Some(&rows) && { live.chats.insert(id, rows); true }
+    };
+    if changed {
+        publish(&app);
+    }
+}
+
 #[tauri::command]
 async fn acc_hotkey(app: AppHandle, key: String) {
     handle_hotkey(&app, &key);
@@ -691,7 +750,9 @@ pub fn run() {
             check_update,
             install_update,
             hotkey,
+            chat_open,
             acc_notify,
+            acc_chats,
             acc_hotkey
         ])
         .setup(|app| {

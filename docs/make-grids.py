@@ -29,6 +29,8 @@ GRIDS = {
         ('desktop-menu', 'Меню аккаунта'),
         ('desktop-notify', 'Уведомление с именем аккаунта'),
         ('desktop-settings', 'Настройки'),
+        ('desktop-chats', 'Все чаты всех аккаунтов'),
+        ('desktop-feed', 'Лента новых сообщений'),
     ]),
     'grid-phone': ('phone', 6, [
         ('android-main', 'Аккаунты сверху'),

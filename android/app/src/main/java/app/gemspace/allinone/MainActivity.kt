@@ -69,6 +69,9 @@ class MainActivity : AppCompatActivity() {
     private val attention = HashSet<String>()
     /** new messages of all accounts, from their notifications (Feed.kt) */
     private val feed = Feed()
+    /** The chat list each account's page shows (read only, shared/chats.js), for "Все чаты". */
+    private val chats = mutableMapOf<String, List<ChatRow>>()
+    private var feedTab = "new"
     private lateinit var feedSlot: FrameLayout
     private var shownFeed = 0
     private var resumed = false
@@ -86,7 +89,10 @@ class MainActivity : AppCompatActivity() {
     private var pendingPermission: PermissionRequest? = null
 
     private val multiProfile by lazy { WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE) }
-    private val injectJs by lazy { assets.open("inject.js").bufferedReader().use { it.readText() } }
+    private val injectJs by lazy {
+        // inject.js reroutes notifications; chats.js (shared with Windows) reads the chat list for "Все чаты"
+        listOf("inject.js", "chats.js").joinToString("\n") { f -> assets.open(f).bufferedReader().use { it.readText() } }
+    }
 
     private val pickFiles = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
         fileCallback?.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(res.resultCode, res.data))
@@ -369,19 +375,26 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** The shared feed: new messages of every account, newest first. A row opens the chat in its account. */
-    private fun openFeed() {
+    private fun openFeed(tab: String = feedTab) {
+        feedTab = tab
         val items = feed.items().filter { store.find(it.account) != null }
         val fg = ContextCompat.getColor(this, R.color.fg)
         val muted = ContextCompat.getColor(this, R.color.muted)
         val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(8), dp(4), dp(8), dp(8)) }
         lateinit var dialog: AlertDialog
-        if (items.isEmpty()) {
+        val tabs = listOf("new", "all")
+        list.addView(segmented(listOf("Новые сообщения", "Все чаты"), tabs.indexOf(tab)) { i ->
+            if (tabs[i] != tab) list.postDelayed({ dialog.dismiss(); openFeed(tabs[i]) }, 180)
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)).apply { bottomMargin = dp(10) })
+        if (tab == "all") {
+            addChatRows(list) { dialog.dismiss() }
+        } else if (items.isEmpty()) {
             list.addView(TextView(this).apply {
                 text = "Новых сообщений нет. Здесь появятся сообщения всех аккаунтов, как только придут."
                 setTextColor(muted); setPadding(dp(16), dp(12), dp(16), dp(12))
             })
         }
-        for (item in items) {
+        if (tab == "new") for (item in items) {
             val a = store.find(item.account) ?: continue
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -425,7 +438,8 @@ class MainActivity : AppCompatActivity() {
             })
         }
         list.addView(TextView(this).apply {
-            text = "Лента собирается из уведомлений аккаунтов, пока Gemspace работает. Спящие аккаунты сюда не пишут. Ответить можно в самом чате."
+            text = if (tab == "all") "Чаты всех аккаунтов, свежие сверху. Gemspace только читает список, который показывает страница Gem Space, и никуда его не отправляет. У спящих аккаунтов показан последний известный список."
+            else "Лента собирается из уведомлений аккаунтов, пока Gemspace работает. Спящие аккаунты сюда не пишут. Ответить можно в самом чате."
             textSize = 12f; setTextColor(muted); setPadding(dp(8), dp(6), dp(8), 0)
         })
         // rows slide in one after another, like the welcome screen
@@ -439,8 +453,114 @@ class MainActivity : AppCompatActivity() {
             .setTitle("Лента")
             .setView(ScrollView(this).apply { addView(list) })
             .setNegativeButton("Закрыть", null)
-        if (items.isNotEmpty()) b.setNeutralButton("Очистить") { _, _ -> feed.clear(null); render() }
+        if (tab == "new" && items.isNotEmpty()) b.setNeutralButton("Очистить") { _, _ -> feed.clear(null); render() }
         dialog = b.show()
+    }
+
+    /** Rows of "Все чаты": every account's chats merged by the time Gem Space shows, unread ones marked. */
+    private fun addChatRows(list: LinearLayout, close: () -> Unit) {
+        val fg = ContextCompat.getColor(this, R.color.fg)
+        val muted = ContextCompat.getColor(this, R.color.muted)
+        val accent = ContextCompat.getColor(this, R.color.accent)
+        val rows = store.accounts.flatMap { a -> (chats[a.id] ?: emptyList()).mapIndexed { i, c -> Triple(a, c, i) } }
+            .sortedWith(compareByDescending<Triple<Account, ChatRow, Int>> { ChatRow.timeOf(it.second.time) }.thenBy { it.third })
+        if (rows.isEmpty()) {
+            list.addView(TextView(this).apply {
+                text = "Список чатов ещё не загрузился. Он появится, когда откроются страницы аккаунтов."
+                setTextColor(muted); setPadding(dp(16), dp(12), dp(16), dp(12))
+            })
+            return
+        }
+        for ((a, c, _) in rows) {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(12), dp(9), dp(12), dp(9))
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(14).toFloat()
+                    setColor(ContextCompat.getColor(context, R.color.card))
+                    setStroke(dp(1), ContextCompat.getColor(context, R.color.line))
+                }
+                setOnClickListener { close(); openChat(a.id, c.name) }
+            }
+            row.addView(TextView(this).apply {
+                text = Store.initials(c.name.replace(Regex("[^\\p{L}\\p{N}\\s]"), " ").trim().ifEmpty { c.name })
+                textSize = 14f; setTextColor(Color.WHITE); typeface = fontHeavy; gravity = Gravity.CENTER
+                background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(a.color) }
+            }, LinearLayout.LayoutParams(dp(40), dp(40)).apply { marginEnd = dp(12) })
+            val texts = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            top.addView(TextView(this).apply {
+                text = c.name; textSize = 15f; typeface = fontHeavy; setTextColor(fg); maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            top.addView(TextView(this).apply { text = c.time; textSize = 12f; setTextColor(muted); setPadding(dp(8), 0, 0, 0) })
+            texts.addView(top)
+            val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            bottom.addView(TextView(this).apply {
+                text = c.preview.ifEmpty { if (c.unread > 0) "Новое сообщение" else "" }
+                textSize = 14f; setTextColor(muted); maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            if (c.unread > 0) bottom.addView(TextView(this).apply {
+                text = if (c.unread > 999) "999+" else c.unread.toString()
+                textSize = 11f; typeface = fontHeavy; setTextColor(Color.WHITE); gravity = Gravity.CENTER
+                setPadding(dp(6), 0, dp(6), 0); minWidth = dp(20)
+                background = GradientDrawable().apply { cornerRadius = dp(10).toFloat(); setColor(accent) }
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(20)).apply { marginStart = dp(8) })
+            texts.addView(bottom)
+            texts.addView(TextView(this).apply {
+                text = "● ${a.name}"; textSize = 11.5f; typeface = fontBold; setTextColor(muted)
+                val sp = android.text.SpannableString(text)
+                sp.setSpan(android.text.style.ForegroundColorSpan(a.color), 0, 1, 0)
+                text = sp
+            })
+            row.addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            list.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(6)
+            })
+        }
+    }
+
+    /** Opens a chat of "Все чаты": switches to its account and clicks the chat's row in the page. */
+    private fun openChat(account: String, name: String) {
+        if (store.find(account) == null) return
+        switchTo(account)
+        views[account]?.evaluateJavascript("window.__gemspaceOpenChat && window.__gemspaceOpenChat(${JSONObject.quote(name)})", null)
+    }
+
+    /** A row of choices with a sliding accent pill under the chosen one. */
+    private fun segmented(labels: List<String>, current: Int, onPick: (Int) -> Unit): FrameLayout {
+        val accent = ContextCompat.getColor(this, R.color.accent)
+        val muted = ContextCompat.getColor(this, R.color.muted)
+        val frame = FrameLayout(this).apply {
+            background = GradientDrawable().apply {
+                cornerRadius = dp(12).toFloat(); setColor(ContextCompat.getColor(context, R.color.page))
+                setStroke(dp(1), ContextCompat.getColor(context, R.color.line))
+            }
+            setPadding(dp(3), dp(3), dp(3), dp(3))
+        }
+        val pill = View(this).apply { background = GradientDrawable().apply { cornerRadius = dp(9).toFloat(); setColor(accent) } }
+        frame.addView(pill, FrameLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT))
+        val rowL = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        frame.addView(rowL, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        var chosen = current.coerceAtLeast(0)
+        fun paint(animate: Boolean) {
+            val cell = rowL.getChildAt(chosen) ?: return
+            if (pill.layoutParams.width != cell.width) pill.layoutParams = pill.layoutParams.apply { width = cell.width }
+            if (animate) pill.animate().translationX(cell.left.toFloat()).setDuration(220)
+                .setInterpolator(android.view.animation.DecelerateInterpolator(2f)).start()
+            else pill.translationX = cell.left.toFloat()
+            for (i in 0 until rowL.childCount) (rowL.getChildAt(i) as TextView).setTextColor(if (i == chosen) Color.WHITE else muted)
+        }
+        labels.forEachIndexed { i, v ->
+            rowL.addView(TextView(this).apply {
+                text = v; textSize = 13f; typeface = fontHeavy; gravity = Gravity.CENTER
+                setOnClickListener { chosen = i; paint(true); onPick(i) }
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+        }
+        rowL.addOnLayoutChangeListener { _, l, _, r, _, oldL, _, oldR, _ -> if (r - l != oldR - oldL) rowL.post { paint(false) } }
+        return frame
     }
 
     private fun openFeedItem(key: Long) {
@@ -887,33 +1007,8 @@ class MainActivity : AppCompatActivity() {
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(4) })
         }
 
-        /** A row of choices with a sliding accent pill under the chosen one. */
-        fun segmented(values: List<Int>, current: Int, onPick: (Int) -> Unit): FrameLayout {
-            val frame = FrameLayout(this@MainActivity).apply { background = field(false); setPadding(dp(3), dp(3), dp(3), dp(3)) }
-            val pill = View(this@MainActivity).apply {
-                background = GradientDrawable().apply { cornerRadius = dp(9).toFloat(); setColor(accent) }
-            }
-            frame.addView(pill, FrameLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT))
-            val rowL = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.HORIZONTAL }
-            frame.addView(rowL, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-            var chosen = values.indexOf(current).coerceAtLeast(0)
-            fun paint(animate: Boolean) {
-                val cell = rowL.getChildAt(chosen) ?: return
-                if (pill.layoutParams.width != cell.width) pill.layoutParams = pill.layoutParams.apply { width = cell.width }
-                if (animate) pill.animate().translationX(cell.left.toFloat()).setDuration(220)
-                    .setInterpolator(android.view.animation.DecelerateInterpolator(2f)).start()
-                else pill.translationX = cell.left.toFloat()
-                for (i in 0 until rowL.childCount) (rowL.getChildAt(i) as TextView).setTextColor(if (i == chosen) Color.WHITE else muted)
-            }
-            values.forEachIndexed { i, v ->
-                rowL.addView(TextView(this@MainActivity).apply {
-                    text = "$v%"; textSize = 13f; typeface = fontHeavy; gravity = Gravity.CENTER
-                    setOnClickListener { chosen = i; paint(true); onPick(v) }
-                }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
-            }
-            rowL.addOnLayoutChangeListener { _, l, _, r, _, oldL, _, oldR, _ -> if (r - l != oldR - oldL) rowL.post { paint(false) } }
-            return frame
-        }
+        fun segmented(values: List<Int>, current: Int, onPick: (Int) -> Unit): FrameLayout =
+            this@MainActivity.segmented(values.map { "$it%" }, values.indexOf(current)) { onPick(values[it]) }
 
         fun pop(v: View) {
             v.scaleX = 0.8f; v.scaleY = 0.8f
@@ -1054,6 +1149,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun onBridgeMessage(id: String, data: String?) {
         val o = try { JSONObject(data ?: return) } catch (e: Exception) { return }
+        if (o.optString("t") == "chats") {
+            if (store.find(id) == null) return
+            val arr = o.optJSONArray("chats") ?: return
+            chats[id] = (0 until minOf(arr.length(), 40)).mapNotNull { i -> arr.optJSONObject(i)?.let { ChatRow.of(it) } }
+            return
+        }
         if (o.optString("t") != "notify") return
         val account = store.find(id) ?: return
         val added = feed.push(id, o.optString("title"), o.optString("body"), o.optString("nid"), System.currentTimeMillis())
@@ -1089,6 +1190,7 @@ class MainActivity : AppCompatActivity() {
         unread.remove(a.id)
         attention.remove(a.id)
         feed.clear(a.id)
+        chats.remove(a.id)
         Notifier.cancel(this, a.id)
         if (multiProfile) {
             // the profile can be deleted only once no WebView uses it; the destroy above is processed on the next frames
