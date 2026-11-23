@@ -12,7 +12,7 @@
       { id: 'a7', name: 'Склад', color: '#66bb6a', proxy: null, pinned: false, unread: 1, attention: false, awake: true },
     ],
     active: 'a1',
-    settings: { sleep_enabled: true, max_awake: 8, notifications: true, notify_preview: true, close_to_tray: true },
+    settings: { sleep_enabled: true, max_awake: 8, notifications: true, notify_preview: true, close_to_tray: true, ui_scale: 100 },
     total_unread: 19,
     feed: (function () {
       var t = Date.now();

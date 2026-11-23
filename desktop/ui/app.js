@@ -189,6 +189,8 @@ const LAYERS_PATH = 'M12 16.5 4.6 10.8 3 12l9 7 9-7-1.6-1.2zM12 14l9-7-9-7-9 7z'
 const TRAY_PATH = 'M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 16H5v-3h3.6a3.5 3.5 0 0 0 6.8 0H19zm0-5h-5a2 2 0 0 1-4 0H5V5h14z';
 const REFRESH_PATH = 'M17.7 6.3A8 8 0 1 0 19.7 14h-2.1a6 6 0 1 1-1.4-6.2L13 11h7V4z';
 const KEYS_PATH = 'M20 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm-9 3h2v2h-2zm0 3h2v2h-2zM8 8h2v2H8zm0 3h2v2H8zm-1 2H5v-2h2zm0-3H5V8h2zm9 7H8v-2h8zm0-4h-2v-2h2zm0-3h-2V8h2zm3 3h-2v-2h2zm0-3h-2V8h2z';
+const SIZE_PATH = 'M9 4v3h5v12h3V7h5V4zm-6 8h3v7h3v-7h3V9H3z';
+const SCALES = [80, 90, 100, 110, 125, 150];
 const GEAR_PATH = 'M19.4 13a7.8 7.8 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.3 7.3 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.3 7.3 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.8 7.8 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.3 7.3 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.3 7.3 0 0 0 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z';
 const icon = (d) => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${d}"/></svg>`;
 
@@ -365,6 +367,8 @@ async function openOverlay(kind, a) {
       <div class="set-label">Окно</div>
       <div class="af-card set-card">
         ${row(TRAY_PATH, 's-tray', s.close_to_tray, 'Сворачивать в трей', 'Крестик прячет окно, уведомления продолжают приходить')}
+        <div class="set-row set-col"><div class="set-head"><span class="af-ic">${icon(SIZE_PATH)}</span><span class="af-txt"><b>Размер интерфейса</b><small>Панель аккаунтов и страницы Gem Space</small></span></div>
+          <div class="seg" id="s-scale">${SCALES.map((v) => `<button type="button" data-v="${v}" class="${v === (s.ui_scale || 100) ? 'on' : ''}">${v}%</button>`).join('')}<span class="seg-pill"></span></div></div>
       </div>
       <div class="set-label">Обновления</div>
       <div class="af-card set-card">
@@ -385,6 +389,15 @@ async function openOverlay(kind, a) {
       <button class="btn primary big wide" id="f-ok">Сохранить</button>
       <button class="btn ghost wide" id="f-cancel">Отмена</button>
     </div>`;
+    const seg = $('#s-scale');
+    const movePill = () => {
+      const on = seg.querySelector('.on'); const pill = seg.querySelector('.seg-pill');
+      if (on) { pill.style.width = on.offsetWidth + 'px'; pill.style.transform = `translateX(${on.offsetLeft}px)`; }
+    };
+    seg.querySelectorAll('button').forEach((btn) => {
+      btn.onclick = () => { seg.querySelectorAll('button').forEach((x) => x.classList.remove('on')); btn.classList.add('on'); movePill(); };
+    });
+    requestAnimationFrame(movePill);
     const max = $('#s-max');
     const syncMax = () => $('#s-max-row').classList.toggle('off', !$('#s-sleep').checked);
     $('#s-sleep').addEventListener('change', syncMax); syncMax();
@@ -401,6 +414,7 @@ async function openOverlay(kind, a) {
         sleep_enabled: $('#s-sleep').checked,
         max_awake: Math.max(1, Math.min(60, parseInt($('#s-max').value, 10) || 8)),
         close_to_tray: $('#s-tray').checked,
+        ui_scale: Number(($('#s-scale .on') || {}).dataset?.v) || 100,
       };
       await invoke('set_settings', { settings });
       closeOverlay();

@@ -735,6 +735,12 @@ class MainActivity : AppCompatActivity() {
             for (i in 0 until stepper.childCount) stepper.getChildAt(i).isEnabled = sleepOn.isChecked }
         sleepOn.setOnCheckedChangeListener { _, _ -> syncMax() }
         syncMax()
+        sheet.section("Вид")
+        val c4 = sheet.card()
+        var scale = s.uiScale
+        val seg = sheet.segmented(listOf(80, 90, 100, 110, 125, 150), scale) { scale = it }
+        sheet.row(c4, R.drawable.ic_size, "Размер текста в чатах", "Страницы Gem Space. Панель аккаунтов следует размеру шрифта Android", View(this))
+        c4.addView(seg, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)).apply { bottomMargin = dp(14) })
         sheet.section("Обновления")
         val c3 = sheet.card()
         val check = sheet.smallButton("Проверить") { Updater.checkNow(this) }
@@ -745,6 +751,10 @@ class MainActivity : AppCompatActivity() {
             s.keepAlive = keep.isChecked
             s.sleepEnabled = sleepOn.isChecked
             s.maxAwake = max
+            if (s.uiScale != scale) {
+                s.uiScale = scale
+                views.values.forEach { it.settings.textZoom = scale }
+            }
             store.save()
             enforceSleep()
             updateKeepAlive()
@@ -877,6 +887,34 @@ class MainActivity : AppCompatActivity() {
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(4) })
         }
 
+        /** A row of choices with a sliding accent pill under the chosen one. */
+        fun segmented(values: List<Int>, current: Int, onPick: (Int) -> Unit): FrameLayout {
+            val frame = FrameLayout(this@MainActivity).apply { background = field(false); setPadding(dp(3), dp(3), dp(3), dp(3)) }
+            val pill = View(this@MainActivity).apply {
+                background = GradientDrawable().apply { cornerRadius = dp(9).toFloat(); setColor(accent) }
+            }
+            frame.addView(pill, FrameLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT))
+            val rowL = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.HORIZONTAL }
+            frame.addView(rowL, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            var chosen = values.indexOf(current).coerceAtLeast(0)
+            fun paint(animate: Boolean) {
+                val cell = rowL.getChildAt(chosen) ?: return
+                if (pill.layoutParams.width != cell.width) pill.layoutParams = pill.layoutParams.apply { width = cell.width }
+                if (animate) pill.animate().translationX(cell.left.toFloat()).setDuration(220)
+                    .setInterpolator(android.view.animation.DecelerateInterpolator(2f)).start()
+                else pill.translationX = cell.left.toFloat()
+                for (i in 0 until rowL.childCount) (rowL.getChildAt(i) as TextView).setTextColor(if (i == chosen) Color.WHITE else muted)
+            }
+            values.forEachIndexed { i, v ->
+                rowL.addView(TextView(this@MainActivity).apply {
+                    text = "$v%"; textSize = 13f; typeface = fontHeavy; gravity = Gravity.CENTER
+                    setOnClickListener { chosen = i; paint(true); onPick(v) }
+                }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+            }
+            rowL.addOnLayoutChangeListener { _, l, _, r, _, oldL, _, oldR, _ -> if (r - l != oldR - oldL) rowL.post { paint(false) } }
+            return frame
+        }
+
         fun pop(v: View) {
             v.scaleX = 0.8f; v.scaleY = 0.8f
             v.animate().scaleX(1f).scaleY(1f).setDuration(260).setInterpolator(OvershootInterpolator(3f)).start()
@@ -931,6 +969,7 @@ class MainActivity : AppCompatActivity() {
             mediaPlaybackRequiresUserGesture = false
             setSupportMultipleWindows(false)
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            textZoom = store.settings.uiScale
             // look like mobile Chrome: some sites refuse the WebView marker
             userAgentString = userAgentString.replace("; wv", "").replace(Regex("Version/\\S+ "), "")
         }

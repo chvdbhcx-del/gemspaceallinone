@@ -17,6 +17,8 @@ data class Settings(
     var keepAlive: Boolean = true,
     var sleepEnabled: Boolean = true,
     var maxAwake: Int = 4,
+    /** Gem Space text size in percent (WebView textZoom), 80..150 */
+    var uiScale: Int = 100,
 )
 
 /** Accounts and settings, kept as one JSON string in SharedPreferences. */
@@ -47,6 +49,7 @@ class Store(context: Context) {
                 settings.keepAlive = s.optBoolean("keepAlive", true)
                 settings.sleepEnabled = s.optBoolean("sleepEnabled", true)
                 settings.maxAwake = s.optInt("maxAwake", 4).coerceIn(1, 30)
+                settings.uiScale = s.optInt("uiScale", 100).coerceIn(80, 150)
             }
         } catch (e: Exception) {
             accounts.clear()
@@ -64,6 +67,7 @@ class Store(context: Context) {
             .put("keepAlive", settings.keepAlive)
             .put("sleepEnabled", settings.sleepEnabled)
             .put("maxAwake", settings.maxAwake)
+            .put("uiScale", settings.uiScale)
         val o = JSONObject().put("accounts", arr).put("active", active ?: "").put("settings", s)
         prefs.edit().putString("state", o.toString()).apply()
     }

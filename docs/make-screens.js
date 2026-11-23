@@ -44,7 +44,7 @@ async function shot(browser, key, file, opts, page, before) {
   });
   await shot(b, 'd3', 'desktop-menu', D, 'docs/demo/desktop.html?menu');
   await shot(b, 'd4', 'desktop-notify', D, 'docs/demo/desktop.html?toast');
-  await shot(b, 'd5', 'desktop-settings', D, rail, (p) => p.click('#gear'));
+  await shot(b, 'd5', 'desktop-settings', D, rail, async (p) => { await p.click('#gear'); await p.waitForTimeout(500); await p.evaluate(() => { const o = document.querySelector('#overlay'); o.scrollTop = 260; }); });
   await shot(b, 'd6', 'desktop-feed', D, rail, (p) => p.click('#feed'));
   await shot(b, 'd7', 'desktop-welcome', D, rail + '?empty');
   await shot(b, 'a1', 'android-main', P, 'docs/demo/phone.html');
@@ -52,7 +52,7 @@ async function shot(browser, key, file, opts, page, before) {
   await shot(b, 'a3', 'android-menu', P, 'docs/demo/phone.html?menu');
   await shot(b, 'a5', 'android-feed', P, 'docs/demo/phone.html?feed');
   await shot(b, 'a6', 'android-welcome', P, 'docs/demo/phone.html?empty');
-  await shot(b, 'a7', 'android-settings', P, 'docs/demo/phone.html?settings');
+  await shot(b, 'a7', 'android-settings', P, 'docs/demo/phone.html?settings&scroll');
   await shot(b, 'a4', 'android-notify', P, 'docs/demo/phone.html?shade');
   await b.close();
 })();

@@ -28,6 +28,28 @@ pub const GEM_URL: &str = "https://web.gemspace.com/";
 const MAIN: &str = "main";
 pub(crate) const RAIL: &str = "rail";
 const RAIL_WIDTH: f64 = 76.0;
+
+/// Interface size as a zoom factor, from the settings (100% = 1.0).
+fn ui_scale(app: &AppHandle) -> f64 {
+    let pct = app.state::<AppState>().store.lock().unwrap().settings.ui_scale.clamp(80, 150);
+    pct as f64 / 100.0
+}
+
+/// The rail grows with the interface size so its tiles keep their proportions.
+fn rail_width(app: &AppHandle) -> f64 {
+    (RAIL_WIDTH * ui_scale(app)).round()
+}
+
+/// Applies the interface size to the rail and every loaded account.
+fn apply_scale(app: &AppHandle) {
+    let z = ui_scale(app);
+    if let Some(window) = main_window(app) {
+        for wv in window.webviews() {
+            let _ = wv.set_zoom(z);
+        }
+    }
+    layout(app);
+}
 const ACC_PREFIX: &str = "acc-";
 
 /// Injected into every account webview before the page's own scripts. It only reroutes the page's
@@ -150,15 +172,16 @@ fn layout(app: &AppHandle) {
     let st = app.state::<AppState>();
     let active = st.store.lock().unwrap().active.clone();
     let overlay = st.live.lock().unwrap().overlay;
-    let content_w = (size.width - RAIL_WIDTH).max(1.0);
+    let rail_w = rail_width(app);
+    let content_w = (size.width - rail_w).max(1.0);
     for wv in window.webviews() {
         let label = wv.label().to_string();
         if label == RAIL {
-            let w = if overlay { size.width } else { RAIL_WIDTH };
+            let w = if overlay { size.width } else { rail_w };
             let _ = wv.set_position(LogicalPosition::new(0.0, 0.0));
             let _ = wv.set_size(LogicalSize::new(w, size.height));
         } else if let Some(id) = id_of(&label) {
-            let _ = wv.set_position(LogicalPosition::new(RAIL_WIDTH, 0.0));
+            let _ = wv.set_position(LogicalPosition::new(rail_w, 0.0));
             let _ = wv.set_size(LogicalSize::new(content_w, size.height));
             if !overlay && active.as_deref() == Some(id) {
                 let _ = wv.show();
@@ -246,12 +269,17 @@ fn create_account_webview(app: &AppHandle, account: &Account) -> tauri::Result<W
         return Err(tauri::Error::WindowNotFound);
     };
     let size = size.to_logical::<f64>(scale);
+    let rail_w = rail_width(app);
     let wv = window.add_child(
         builder,
-        LogicalPosition::new(RAIL_WIDTH, 0.0),
-        LogicalSize::new((size.width - RAIL_WIDTH).max(1.0), size.height),
+        LogicalPosition::new(rail_w, 0.0),
+        LogicalSize::new((size.width - rail_w).max(1.0), size.height),
     )?;
     let _ = wv.hide();
+    let z = ui_scale(app);
+    if (z - 1.0).abs() > f64::EPSILON {
+        let _ = wv.set_zoom(z);
+    }
     Ok(wv)
 }
 
@@ -558,7 +586,16 @@ async fn set_overlay(app: AppHandle, open: bool) {
 
 #[tauri::command]
 async fn set_settings(app: AppHandle, settings: Settings) {
-    app.state::<AppState>().store.lock().unwrap().settings = settings;
+    let rescale = {
+        let st = app.state::<AppState>();
+        let mut store = st.store.lock().unwrap();
+        let rescale = store.settings.ui_scale != settings.ui_scale;
+        store.settings = settings;
+        rescale
+    };
+    if rescale {
+        apply_scale(&app);
+    }
     save(&app);
     enforce_sleep(&app);
     publish(&app);
@@ -673,11 +710,15 @@ pub fn run() {
                 let _ = window.set_icon(icon);
             }
             let size = window.inner_size()?.to_logical::<f64>(window.scale_factor()?);
-            window.add_child(
+            let rail = window.add_child(
                 WebviewBuilder::new(RAIL, WebviewUrl::App("index.html".into())),
                 LogicalPosition::new(0.0, 0.0),
-                LogicalSize::new(RAIL_WIDTH, size.height),
+                LogicalSize::new(rail_width(&handle), size.height),
             )?;
+            let z = ui_scale(&handle);
+            if (z - 1.0).abs() > f64::EPSILON {
+                let _ = rail.set_zoom(z);
+            }
 
             let show = MenuItem::with_id(app, "show", "Открыть Gemspace", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Выйти", true, None::<&str>)?;
