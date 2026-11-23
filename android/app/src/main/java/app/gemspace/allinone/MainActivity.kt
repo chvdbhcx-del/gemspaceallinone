@@ -1010,121 +1010,80 @@ class MainActivity : AppCompatActivity() {
         sheet.show()
     }
 
-    /** Settings laid out like Hivogram's: a list of pages, one page at a time, changes apply at once. */
-    private fun openSettings(page: String = "", into: Sheet? = null, back: Boolean = false) {
+    private fun openSettings() {
         val s = store.settings
-        val sheet = into ?: Sheet()
-        sheet.clear()
-        val muted = ContextCompat.getColor(this, R.color.muted)
-        fun applySettings() {
-            store.save(); enforceSleep(); updateKeepAlive(); render()
+        val sheet = Sheet()
+        val gear = sheet.avatar(ContextCompat.getColor(this, R.color.card), "").apply {
+            (background as GradientDrawable).setStroke(dp(1), ContextCompat.getColor(context, R.color.line))
         }
-        val pages = listOf(
-            Triple("accounts", R.drawable.ic_users, "Аккаунты"),
-            Triple("notifications", R.drawable.ic_bell, "Уведомления"),
-            Triple("chats", R.drawable.ic_chats, "Все чаты и лента"),
-            Triple("sleep", R.drawable.ic_moon, "Спящий режим"),
-            Triple("updates", R.drawable.ic_refresh, "Обновления"),
-        )
-        fun sub(id: String) = when (id) {
-            "accounts" -> store.accounts.size.let { n -> if (n == 0) "Добавьте первый аккаунт" else "$n ${plural(n, "аккаунт", "аккаунта", "аккаунтов")}, имя, цвет, порядок" }
-            "notifications" -> if (!s.notifications) "Выключены" else if (s.notifyPreview) "Включены, с текстом сообщения" else "Включены, без текста"
-            "chats" -> "Общий список чатов всех аккаунтов"
-            "sleep" -> if (s.sleepEnabled) "Загружено не больше ${s.maxAwake}" else "Выключен, все аккаунты в памяти"
-            else -> "Версия ${BuildConfig.VERSION_NAME}"
+        val gearBox = FrameLayout(this).apply {
+            addView(gear, FrameLayout.LayoutParams(dp(72), dp(72)))
+            addView(ImageView(context).apply {
+                setImageResource(R.drawable.ic_gear); setColorFilter(ContextCompat.getColor(context, R.color.accent))
+                rotation = -120f; alpha = 0f
+                animate().rotation(0f).alpha(1f).setDuration(700).setStartDelay(80)
+                    .setInterpolator(android.view.animation.DecelerateInterpolator(2f)).start()
+            }, FrameLayout.LayoutParams(dp(34), dp(34), Gravity.CENTER))
         }
-        val cur = pages.firstOrNull { it.first == page }
-        sheet.onBack = if (cur != null) ({ openSettings("", sheet, true) }) else null
-        sheet.header(cur?.third ?: "Настройки", cur != null)
-        when (page) {
-            "" -> {
-                sheet.brand()
-                val c = sheet.card()
-                for ((id, ic, title) in pages) sheet.navRow(c, ic, title, sub(id)) { openSettings(id, sheet) }
-                val c4 = sheet.card()
-                val seg = sheet.segmented(listOf(80, 90, 100, 110, 125, 150), s.uiScale) { v ->
-                    s.uiScale = v
-                    views.values.forEach { it.settings.textZoom = v }
-                    store.save()
-                }
-                sheet.row(c4, R.drawable.ic_size, "Размер текста в чатах", "Страницы Gem Space. Панель аккаунтов следует размеру шрифта Android", View(this))
-                c4.addView(seg, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)).apply { bottomMargin = dp(14) })
-                sheet.note("Внутри каждого аккаунта обычная веб-версия Gem Space. Hovi Space её не изменяет и ничего не отправляет от вашего имени.")
-            }
-            "accounts" -> {
-                val c = sheet.card()
-                for (a in store.accounts) {
-                    val ava = TextView(this).apply {
-                        text = Store.initials(a.name); textSize = 13f; typeface = fontHeavy; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
-                        background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(a.color) }
-                    }
-                    val state = (if (views.containsKey(a.id)) "Загружен" else "Спит") + (if (a.pinned) " · не усыплять" else "") +
-                        ((unread[a.id] ?: 0).takeIf { it > 0 }?.let { " · непрочитанных $it" } ?: "")
-                    sheet.navRow(c, ava, a.name, state) { sheet.dismiss(); editAccount(a) }
-                }
-                sheet.navRow(c, R.drawable.ic_plus, "Добавить аккаунт", "Новый вход в Gem Space по номеру телефона") { sheet.dismiss(); editAccount(null) }
-                sheet.note("У каждого аккаунта свои данные, как в отдельном браузере. Порядок, сон и удаление: долгое нажатие на аккаунт в панели.")
-            }
-            "notifications" -> {
-                val c = sheet.card()
-                val notif = sheet.toggle(c, R.drawable.ic_bell, "Уведомления", "О новых сообщениях во всех аккаунтах", s.notifications)
-                val preview = sheet.toggle(c, R.drawable.ic_text, "Текст сообщения", "Показывать в уведомлении, а не только имя", s.notifyPreview)
-                val keep = sheet.toggle(c, R.drawable.ic_bolt, "Работать в фоне", "Значок в шторке, уведомления не теряются", s.keepAlive)
-                notif.setOnCheckedChangeListener { _, on -> s.notifications = on; applySettings() }
-                preview.setOnCheckedChangeListener { _, on -> s.notifyPreview = on; applySettings() }
-                keep.setOnCheckedChangeListener { _, on -> s.keepAlive = on; applySettings() }
-                sheet.note("В уведомлении стоит имя аккаунта, нажатие открывает этот аккаунт. Спящие аккаунты уведомлений не присылают.")
-            }
-            "chats" -> {
-                val c = sheet.card()
-                sheet.navRow(c, R.drawable.ic_chats, "Открыть «Все чаты»", "Кнопка слева в панели аккаунтов") { sheet.dismiss(); openList() }
-                val n = feed.size
-                val clear = sheet.smallButton("Очистить") { feed.clear(null); render(); openSettings("chats", sheet) }
-                if (n == 0) { clear.isEnabled = false; clear.alpha = 0.4f }
-                sheet.row(c, R.drawable.ic_feed, "Лента", if (n > 0) "$n ${plural(n, "новое сообщение", "новых сообщения", "новых сообщений")}" else "Новых сообщений нет", clear)
-                sheet.note("«Все чаты» собирает списки чатов, которые показывают страницы аккаунтов, и сортирует их по времени. Hovi Space только читает эти списки и никуда их не отправляет.")
-            }
-            "sleep" -> {
-                val c2 = sheet.card()
-                val sleepOn = sheet.toggle(c2, R.drawable.ic_moon, "Спящий режим", "Давно не открытые аккаунты выгружаются из памяти", s.sleepEnabled)
-                val value = TextView(this).apply {
-                    text = s.maxAwake.coerceIn(1, 30).toString(); textSize = 15f; typeface = fontHeavy; gravity = Gravity.CENTER
-                    setTextColor(ContextCompat.getColor(context, R.color.fg))
-                }
-                fun stepBtn(t: String, d: Int) = TextView(this).apply {
-                    text = t; textSize = 18f; typeface = fontHeavy; gravity = Gravity.CENTER
-                    setTextColor(ContextCompat.getColor(context, R.color.fg))
-                    setOnClickListener { s.maxAwake = (s.maxAwake + d).coerceIn(1, 30); value.text = s.maxAwake.toString(); sheet.pop(value); applySettings() }
-                }
-                val stepper = LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    background = sheet.field(false)
-                    addView(stepBtn("−", -1), LinearLayout.LayoutParams(dp(36), dp(36)))
-                    addView(value, LinearLayout.LayoutParams(dp(30), dp(36)))
-                    addView(stepBtn("+", 1), LinearLayout.LayoutParams(dp(36), dp(36)))
-                }
-                val maxRow = sheet.row(c2, R.drawable.ic_layers, "Загружено одновременно", "Открытый и «Не усыплять» не считаются", stepper)
-                fun syncMax() {
-                    maxRow.animate().alpha(if (sleepOn.isChecked) 1f else 0.4f).setDuration(180).start()
-                    for (i in 0 until stepper.childCount) stepper.getChildAt(i).isEnabled = sleepOn.isChecked
-                }
-                sleepOn.setOnCheckedChangeListener { _, on -> s.sleepEnabled = on; syncMax(); applySettings() }
-                syncMax()
-                sheet.note("Спящий аккаунт не присылает уведомлений и просыпается, когда вы его открываете. Важные аккаунты отметьте «Не усыплять» долгим нажатием.")
-            }
-            "updates" -> {
-                val c3 = sheet.card()
-                val check = sheet.smallButton("Проверить") { Updater.checkNow(this) }
-                sheet.row(c3, R.drawable.ic_refresh, "Версия ${BuildConfig.VERSION_NAME}", "Проверяется сама при запуске", check)
-                sheet.note("Обновление ставится поверх, аккаунты и входы сохраняются.")
-            }
+        sheet.hero(gearBox, "Настройки", "Hovi Space ${BuildConfig.VERSION_NAME}. Внутри обычная веб-версия Gem Space, Hovi Space её не изменяет.")
+        sheet.section("Уведомления")
+        val c1 = sheet.card()
+        val notif = sheet.toggle(c1, R.drawable.ic_bell, "Уведомления", "О новых сообщениях во всех аккаунтах", s.notifications)
+        val preview = sheet.toggle(c1, R.drawable.ic_text, "Текст сообщения", "Показывать в уведомлении, а не только имя", s.notifyPreview)
+        val keep = sheet.toggle(c1, R.drawable.ic_bolt, "Работать в фоне", "Значок в шторке, уведомления не теряются", s.keepAlive)
+        sheet.section("Память")
+        val c2 = sheet.card()
+        val sleepOn = sheet.toggle(c2, R.drawable.ic_moon, "Спящий режим", "Давно не открытые аккаунты выгружаются и не присылают уведомлений", s.sleepEnabled)
+        var max = s.maxAwake.coerceIn(1, 30)
+        val value = TextView(this).apply {
+            text = max.toString(); textSize = 15f; typeface = fontHeavy; gravity = Gravity.CENTER
+            setTextColor(ContextCompat.getColor(context, R.color.fg))
         }
-        sheet.show(if (into == null) 0 else if (back) -1 else 1)
-    }
-
-    private fun plural(n: Int, one: String, few: String, many: String): String {
-        val m10 = n % 10; val m100 = n % 100
-        return if (m10 == 1 && m100 != 11) one else if (m10 in 2..4 && (m100 < 12 || m100 > 14)) few else many
+        fun stepBtn(t: String, d: Int) = TextView(this).apply {
+            text = t; textSize = 18f; typeface = fontHeavy; gravity = Gravity.CENTER
+            setTextColor(ContextCompat.getColor(context, R.color.fg))
+            setOnClickListener { max = (max + d).coerceIn(1, 30); value.text = max.toString(); sheet.pop(value) }
+        }
+        val stepper = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            background = sheet.field(false)
+            addView(stepBtn("−", -1), LinearLayout.LayoutParams(dp(36), dp(36)))
+            addView(value, LinearLayout.LayoutParams(dp(30), dp(36)))
+            addView(stepBtn("+", 1), LinearLayout.LayoutParams(dp(36), dp(36)))
+        }
+        val maxRow = sheet.row(c2, R.drawable.ic_layers, "Загружено одновременно", "Открытый и «Не усыплять» не считаются", stepper)
+        fun syncMax() { maxRow.animate().alpha(if (sleepOn.isChecked) 1f else 0.4f).setDuration(180).start(); stepper.isEnabled = sleepOn.isChecked
+            for (i in 0 until stepper.childCount) stepper.getChildAt(i).isEnabled = sleepOn.isChecked }
+        sleepOn.setOnCheckedChangeListener { _, _ -> syncMax() }
+        syncMax()
+        sheet.section("Вид")
+        val c4 = sheet.card()
+        var scale = s.uiScale
+        val seg = sheet.segmented(listOf(80, 90, 100, 110, 125, 150), scale) { scale = it }
+        sheet.row(c4, R.drawable.ic_size, "Размер текста в чатах", "Страницы Gem Space. Панель аккаунтов следует размеру шрифта Android", View(this))
+        c4.addView(seg, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)).apply { bottomMargin = dp(14) })
+        sheet.section("Обновления")
+        val c3 = sheet.card()
+        val check = sheet.smallButton("Проверить") { Updater.checkNow(this) }
+        sheet.row(c3, R.drawable.ic_refresh, "Версия ${BuildConfig.VERSION_NAME}", "Проверяется сама при запуске", check)
+        sheet.primary("Сохранить") {
+            s.notifications = notif.isChecked
+            s.notifyPreview = preview.isChecked
+            s.keepAlive = keep.isChecked
+            s.sleepEnabled = sleepOn.isChecked
+            s.maxAwake = max
+            if (s.uiScale != scale) {
+                s.uiScale = scale
+                views.values.forEach { it.settings.textZoom = scale }
+            }
+            store.save()
+            enforceSleep()
+            updateKeepAlive()
+            render()
+            sheet.dismiss()
+        }
+        sheet.ghost("Отмена") { sheet.dismiss() }
+        sheet.show()
     }
 
     /** A full-screen sheet in the welcome screen's look: hero on top, cards of rows, big buttons. Children rise one after another. */
@@ -1141,23 +1100,14 @@ class MainActivity : AppCompatActivity() {
         private val line = ContextCompat.getColor(this@MainActivity, R.color.line)
         private val page = ContextCompat.getColor(this@MainActivity, R.color.page)
 
-        /** set by a page of a sheet with pages: Back goes there instead of closing */
-        var onBack: (() -> Unit)? = null
-        private val scroll = ScrollView(this@MainActivity).apply { isFillViewport = true; addView(col) }
-        private val closeBtn = ImageView(this@MainActivity).apply {
-            setImageResource(R.drawable.ic_close); setColorFilter(muted)
-            setPadding(dp(12), dp(12), dp(12), dp(12))
-            setOnClickListener { dismiss() }
-        }
-
         init {
             val root = FrameLayout(this@MainActivity)
-            root.addView(scroll)
-            root.addView(closeBtn, FrameLayout.LayoutParams(dp(48), dp(48), Gravity.END or Gravity.TOP).apply { topMargin = dp(6); marginEnd = dp(6) })
-            dialog.setOnKeyListener { _, code, ev ->
-                val b = onBack
-                if (code == android.view.KeyEvent.KEYCODE_BACK && b != null) { if (ev.action == android.view.KeyEvent.ACTION_UP) b(); true } else false
-            }
+            root.addView(ScrollView(this@MainActivity).apply { isFillViewport = true; addView(col) })
+            root.addView(ImageView(this@MainActivity).apply {
+                setImageResource(R.drawable.ic_close); setColorFilter(muted)
+                setPadding(dp(12), dp(12), dp(12), dp(12))
+                setOnClickListener { dismiss() }
+            }, FrameLayout.LayoutParams(dp(48), dp(48), Gravity.END or Gravity.TOP).apply { topMargin = dp(6); marginEnd = dp(6) })
             ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
                 val b = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime())
                 v.setPadding(b.left, b.top, b.right, b.bottom); insets
@@ -1165,43 +1115,6 @@ class MainActivity : AppCompatActivity() {
             dialog.setContentView(root)
             dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         }
-
-        fun clear() { col.removeAllViews(); onBack = null }
-
-        /** A page title with a back arrow, like Hivogram's settings column. */
-        fun header(title: String, withBack: Boolean) {
-            val r = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(6), dp(40), dp(8)) }
-            if (withBack) r.addView(ImageView(this@MainActivity).apply {
-                setImageResource(R.drawable.ic_back); setColorFilter(fg); setPadding(dp(10), dp(10), dp(10), dp(10))
-                setOnClickListener { onBack?.invoke() }
-            }, LinearLayout.LayoutParams(dp(44), dp(44)).apply { marginStart = -dp(10); marginEnd = dp(4) })
-            r.addView(TextView(this@MainActivity).apply { text = title; textSize = 22f; typeface = fontHeavy; setTextColor(fg) })
-            col.addView(r)
-        }
-
-        /** The app's logo, name and what it does, on top of the settings list. */
-        fun brand() {
-            val r = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(2), dp(4), 0, dp(14)) }
-            r.addView(ImageView(this@MainActivity).apply { setImageResource(R.mipmap.ic_launcher) }, LinearLayout.LayoutParams(dp(60), dp(60)))
-            val t = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12), 0, 0, 0) }
-            t.addView(TextView(this@MainActivity).apply { text = "Hovi Space"; textSize = 21f; typeface = fontHeavy; setTextColor(fg) })
-            t.addView(TextView(this@MainActivity).apply { text = "Все аккаунты Gem Space в одном приложении"; textSize = 13.5f; typeface = fontBold; setTextColor(muted) })
-            r.addView(t)
-            col.addView(r)
-        }
-
-        fun note(t: String) {
-            col.addView(TextView(this@MainActivity).apply { text = t; textSize = 12.5f; setTextColor(muted); setPadding(dp(6), 0, dp(6), dp(10)) })
-        }
-
-        private fun chevron() = ImageView(this@MainActivity).apply { setImageResource(R.drawable.ic_chevron); setColorFilter(muted) }
-
-        /** A row that opens a page: icon, title, a line on its state and a chevron. */
-        fun navRow(card: LinearLayout, icon: Int, title: String, sub: String, onClick: () -> Unit) =
-            row(card, icon, title, sub, chevron()).apply { setOnClickListener { onClick() } }
-
-        fun navRow(card: LinearLayout, icon: View, title: String, sub: String, onClick: () -> Unit) =
-            row(card, icon, title, sub, chevron()).apply { setOnClickListener { onClick() } }
 
         fun avatar(color: Int, text: String) = TextView(this@MainActivity).apply {
             this.text = text; textSize = 26f; typeface = fontHeavy; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
@@ -1242,19 +1155,16 @@ class MainActivity : AppCompatActivity() {
             cornerRadius = dp(12).toFloat(); setColor(page); setStroke(dp(if (focused) 2 else 1), if (focused) accent else line)
         }
 
-        fun row(card: LinearLayout, icon: Int, title: String, sub: String?, trailing: View): LinearLayout =
-            row(card, ImageView(this@MainActivity).apply {
-                setImageResource(icon); setColorFilter(accent); setPadding(dp(8), dp(8), dp(8), dp(8))
-                background = GradientDrawable().apply { cornerRadius = dp(11).toFloat(); setColor((accent and 0x00FFFFFF) or 0x26000000) }
-            }, title, sub, trailing)
-
-        fun row(card: LinearLayout, icon: View, title: String, sub: String?, trailing: View): LinearLayout {
+        fun row(card: LinearLayout, icon: Int, title: String, sub: String?, trailing: View): LinearLayout {
             if (card.childCount > 0) card.addView(View(this@MainActivity).apply { setBackgroundColor(line) },
                 LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)))
             val r = LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(12), 0, dp(12))
             }
-            r.addView(icon, LinearLayout.LayoutParams(dp(36), dp(36)))
+            r.addView(ImageView(this@MainActivity).apply {
+                setImageResource(icon); setColorFilter(accent); setPadding(dp(8), dp(8), dp(8), dp(8))
+                background = GradientDrawable().apply { cornerRadius = dp(11).toFloat(); setColor((accent and 0x00FFFFFF) or 0x26000000) }
+            }, LinearLayout.LayoutParams(dp(36), dp(36)))
             val txt = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12), 0, dp(10), 0) }
             txt.addView(TextView(this@MainActivity).apply { text = title; textSize = 15f; typeface = fontHeavy; setTextColor(fg) })
             if (sub != null) txt.addView(TextView(this@MainActivity).apply { text = sub; textSize = 12.5f; setTextColor(muted) })
@@ -1306,15 +1216,7 @@ class MainActivity : AppCompatActivity() {
             v.animate().scaleX(1f).scaleY(1f).setDuration(260).setInterpolator(OvershootInterpolator(3f)).start()
         }
 
-        /** dir 0 opens the sheet with rows rising one after another; 1 / -1 slides a new page in from the right / left. */
-        fun show(dir: Int = 0) {
-            if (dir != 0) {
-                scroll.scrollTo(0, 0)
-                col.alpha = 0f; col.translationX = dp(24 * dir).toFloat()
-                col.animate().alpha(1f).translationX(0f).setDuration(240)
-                    .setInterpolator(android.view.animation.DecelerateInterpolator(2f)).start()
-                return
-            }
+        fun show() {
             for (i in 0 until col.childCount) {
                 val v = col.getChildAt(i)
                 v.alpha = 0f; v.translationY = dp(12).toFloat()

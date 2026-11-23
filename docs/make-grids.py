@@ -29,7 +29,7 @@ GRIDS = {
         ('desktop-menu', 'Меню аккаунта'),
         ('desktop-notify', 'Уведомление с именем аккаунта'),
         ('desktop-settings', 'Настройки'),
-        ('desktop-settings-sleep', 'Раздел настроек'),
+        ('desktop-welcome', 'Первый запуск'),
         ('desktop-feed', 'Лента новых сообщений'),
     ]),
     'grid-phone': ('phone', 4, [
