@@ -25,7 +25,8 @@ data class ChatRow(val name: String, val time: String, val preview: String, val 
                 return day + (m.groupValues[1].toInt() * 60 + m.groupValues[2].toInt()) * 60_000L
             }
             if (t.startsWith("вчера") || t.startsWith("yesterday")) return day - 12 * 3_600_000L
-            val w = WEEK[t.take(3).trimEnd('.')] ?: WEEK[t.take(2)]
+            // only a bare weekday label ("пн", "пн.", "mon"), never a word that starts like one
+            val w = if (t.length <= 4) WEEK[t.trimEnd('.')] else null
             if (w != null) {
                 val back = ((now.get(Calendar.DAY_OF_WEEK) - w + 7) % 7).let { if (it == 0) 7 else it }
                 return day - back * 86_400_000L + 12 * 3_600_000L

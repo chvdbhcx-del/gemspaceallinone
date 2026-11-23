@@ -131,7 +131,7 @@ function chatTime(label) {
     return day + (h * 60 + +m[2]) * 60000;
   }
   if (/^(вчера|yesterday)/.test(t)) return day - 12 * 3600000;
-  const w = WEEK[t.slice(0, 3).replace(/\.$/, '')] ?? WEEK[t.slice(0, 2)];
+  const w = t.length <= 4 ? WEEK[t.replace(/\.$/, '')] : undefined; // a bare weekday label only
   if (w !== undefined) {
     const back = ((now.getDay() - w + 7) % 7) || 7;
     return day - back * 86400000 + 12 * 3600000;
