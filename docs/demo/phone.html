@@ -1,42 +1,71 @@
 <!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Gemspace Android demo</title>
-<!-- Replica of the Android app's account strip (MainActivity.render, same tile geometry) for screenshots; the page below is a demo chat. -->
+<!-- Replica of the Android app in dark mode (MainActivity.render: same tile geometry, colors and Nunito) for screenshots.
+     The page below the strip is a made-up chat. ?dialog = new account, ?menu = long-press menu, ?shade = notifications. -->
 <style>
-:root{--bar:#e6eaee;--fg:#17212b;--muted:#5d6b78;--line:#c9d2da}
-html,body{margin:0;height:100%;font:14px/1.4 Roboto,"Segoe UI",system-ui,sans-serif;background:var(--bar);color:var(--fg);overflow:hidden}
-.status{height:28px;display:flex;justify-content:space-between;align-items:center;padding:0 18px;font-size:13px;font-weight:600}
+@font-face { font-family: "Nunito"; src: url("../../desktop/ui/fonts/Nunito.woff2") format("woff2"); font-weight: 200 1000; }
+:root{--bar:#0e1621;--page:#17212b;--fg:#e9eef3;--muted:#8a99a8;--line:#2b3a4a;--acc:#3aa0ff;--float:#2a333d}
+html,body{margin:0;height:100%;font:500 14px/1.4 "Nunito",system-ui,sans-serif;background:var(--bar);color:var(--fg);overflow:hidden;-webkit-font-smoothing:antialiased}
+.status{height:30px;display:flex;justify-content:space-between;align-items:center;padding:0 20px;font-size:13px;font-weight:700}
+.status svg{width:14px;height:14px;fill:currentColor;margin-left:5px;vertical-align:-2px}
 .bar{display:flex;align-items:flex-start;padding:4px 4px 2px}
 .strip{flex:1;display:flex;overflow:hidden;-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 24px),transparent)}
 .tile{position:relative;width:62px;height:66px;flex:none}
 .ava,.ic{position:absolute;left:9px;top:5px;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;box-sizing:border-box}
-.ava{color:#fff;font-weight:700;font-size:15px}
-.ring{position:absolute;left:5px;top:1px;width:52px;height:52px;border-radius:50%;border:2px solid #3aa0ff;box-sizing:border-box}
+.ava{color:#fff;font-weight:800;font-size:15px}
+.ring{position:absolute;left:5px;top:1px;width:52px;height:52px;border-radius:50%;border:2px solid var(--acc);box-sizing:border-box}
 .ic{border:1px solid var(--line);font-size:20px;color:var(--muted)}
+.ic svg{width:20px;height:20px;fill:currentColor}
 .sleep .ava{opacity:.55}
-.lbl{position:absolute;bottom:0;left:2px;right:2px;text-align:center;font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.on .lbl{color:var(--fg)}
-.badge{position:absolute;left:41px;top:1px;min-width:18px;height:18px;border-radius:9px;background:#3aa0ff;color:#fff;font-size:10px;font-weight:700;display:grid;place-items:center;padding:0 4px;box-sizing:border-box;border:2px solid var(--bar)}
-.dot{position:absolute;left:43px;top:4px;width:12px;height:12px;border-radius:50%;background:#3aa0ff;border:2px solid var(--bar);box-sizing:border-box}
-iframe{border:0;width:100%;height:calc(100% - 100px);display:block}
-.scrim{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center}
-.dlg{background:#fff;border-radius:6px;width:300px;padding:22px 22px 10px;box-shadow:0 10px 30px rgba(0,0,0,.3)}
-.dlg h3{margin:0 0 12px;font-size:19px;font-weight:500}
-.dlg .in{border-bottom:2px solid #3aa0ff;padding:8px 0;font-size:16px}
+.lbl{position:absolute;bottom:0;left:2px;right:2px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.on .lbl{color:var(--fg);font-weight:800}
+.badge{position:absolute;left:41px;top:1px;min-width:18px;height:18px;border-radius:9px;background:var(--acc);color:#fff;font-size:10px;font-weight:800;display:grid;place-items:center;padding:0 4px;box-sizing:border-box;border:2px solid var(--bar)}
+.dot{position:absolute;left:43px;top:4px;width:12px;height:12px;border-radius:50%;background:var(--acc);border:2px solid var(--bar);box-sizing:border-box}
+iframe{border:0;width:100%;height:calc(100% - 102px - 16px);display:block;background:var(--page)}
+.nav{height:16px;display:flex;justify-content:center;align-items:center;background:var(--page)}.nav span{width:108px;height:4px;border-radius:2px;background:#cfd6dd}
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center}
+.dlg{background:var(--float);border-radius:4px;width:320px;padding:22px 24px 8px;box-shadow:0 12px 34px rgba(0,0,0,.5)}
+.dlg h3{margin:0 0 10px;font-size:20px;font-weight:800}
+.dlg .in{border-bottom:2px solid var(--acc);padding:8px 2px;font-size:17px}
 .cs{display:flex;gap:6px;padding:14px 0 6px}.cs span{width:30px;height:30px;border-radius:50%;box-sizing:border-box}
 .cs .sel{border:3px solid var(--fg)}
-.btns{display:flex;justify-content:flex-end;gap:18px;padding:14px 0 6px;color:#3aa0ff;font-weight:600;text-transform:uppercase;font-size:13px}
+.btns{display:flex;justify-content:flex-end;gap:8px;padding:14px 0 4px;color:var(--acc);font-weight:800;text-transform:uppercase;font-size:14px;letter-spacing:.03em}
+.btns span{padding:10px 8px}
+.pop{position:fixed;left:66px;top:104px;width:200px;background:var(--float);border-radius:4px;box-shadow:0 10px 30px rgba(0,0,0,.5);padding:8px 0;display:none}
+.pop div{padding:12px 16px;font-size:16px}
+.shade{position:fixed;inset:0;background:rgba(14,18,24,.94);backdrop-filter:blur(8px);display:none;padding:34px 12px 0;box-sizing:border-box}
+.shade .clock{font-size:52px;font-weight:300;padding:6px 8px 0}.shade .date{color:#c3ccd5;padding:0 10px 18px;font-weight:600}
+.n{background:#232c36;border-radius:22px;padding:14px 16px;margin-bottom:6px;display:flex;gap:12px}
+.n .i{width:34px;height:34px;border-radius:50%;flex:none;display:grid;place-items:center}
+.n .i svg{width:18px;height:18px;fill:#fff}
+.n small{color:#9aa7b4;font-size:12px;font-weight:600}.n b{display:block;font-size:15px;font-weight:800;margin:1px 0}.n p{margin:0;color:#d3dae1;font-size:14px}
+.n.first{border-radius:22px 22px 6px 6px}.n.mid{border-radius:6px}.n.last{border-radius:6px 6px 22px 22px}
 </style></head><body>
-<div class="status"><span>12:42</span><span>▲ ▮ 87%</span></div>
+<div class="status"><span>12:42</span><span><svg viewBox="0 0 24 24"><path d="M12 4C7.3 4 3.1 5.8 0 8.8L12 21 24 8.8C20.9 5.8 16.7 4 12 4z"/></svg><svg viewBox="0 0 24 24"><path d="M2 22h20V2z"/></svg><svg viewBox="0 0 24 24"><path d="M16 4h-2V2h-4v2H8a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1z"/></svg> 87%</span></div>
 <div class="bar"><div class="strip" id="strip"></div><div class="tile"><div class="ic">⚙</div><div class="lbl">Настройки</div></div></div>
-<iframe src="chat-phone.html"></iframe>
+<iframe src="chat.html?phone"></iframe><div class="nav"><span></span></div>
 <div class="scrim" id="scrim"><div class="dlg"><h3>Новый аккаунт</h3><div class="in">Розница</div>
-<div class="cs"><span style="background:#3aa0ff"></span><span style="background:#26a69a"></span><span style="background:#7e57c2"></span><span style="background:#ef5350"></span><span class="sel" style="background:#ffa726"></span><span style="background:#66bb6a"></span><span style="background:#ec407a"></span></div>
-<div class="btns"><span>Отмена</span><span>Добавить и войти</span></div></div></div>
+<div class="cs" id="cs"></div><div class="btns"><span>Отмена</span><span>Добавить и войти</span></div></div></div>
+<div class="pop" id="pop"><div>Изменить</div><div>Перезагрузить</div><div>Усыпить сейчас</div><div>Не усыплять</div><div>Левее</div><div>Правее</div><div>Удалить</div></div>
+<div class="shade" id="shade"><div class="clock">12:42</div><div class="date">понедельник, 23 ноября</div>
+  <div class="n first"><span class="i" style="background:#26a69a" id="i1"></span><div><small>Gemspace · сейчас</small><b>Поддержка · Денис Карпов</b><p>Добрый вечер! Когда будет возврат по заказу 2231?</p></div></div>
+  <div class="n mid"><span class="i" style="background:#7e57c2" id="i2"></span><div><small>Gemspace · 2 мин</small><b>Опт · Марк</b><p>Нужно 40 коробок к пятнице</p></div></div>
+  <div class="n mid"><span class="i" style="background:#ffa726" id="i3"></span><div><small>Gemspace · 9 мин</small><b>Магазин · Ольга</b><p>Спасибо, всё пришло!</p></div></div>
+  <div class="n last"><span class="i" style="background:#3aa0ff" id="i4"></span><div><small>Gemspace</small><b>Gemspace на связи</b><p>Непрочитанных: 19</p></div></div>
+</div>
 <script>
-const A=[['Продажи','#3aa0ff',4,0,1,1],['Поддержка','#26a69a',12,0,0,1],['Опт','#7e57c2',0,1,0,1],['Магазин','#ffa726',2,0,0,1],['Доставка','#ef5350',0,0,0,0],['Анна К.','#ec407a',0,0,0,0]];
+// same accounts as docs/demo/demo-state.js: name, color, unread, attention, active, awake
+const A=[['Продажи','#3aa0ff',4,0,1,1],['Поддержка','#26a69a',12,0,0,1],['Опт','#7e57c2',0,1,0,1],['Магазин','#ffa726',2,0,0,1],['Доставка','#ef5350',0,0,0,0],['Анна К.','#ec407a',0,0,0,0],['Склад','#66bb6a',1,0,0,1]];
+const COLORS=['#3aa0ff','#26a69a','#7e57c2','#ef5350','#ffa726','#66bb6a','#ec407a','#8d6e63'];
 const s=document.getElementById('strip');
 for(const [n,c,u,att,on,awake] of A){const t=document.createElement('div');t.className='tile'+(on?' on':'')+(awake?'':' sleep');
-const i=n.trim().split(/\s+/);t.innerHTML=(on?'<div class="ring"></div>':'')+`<div class="ava" style="background:${c}">${(i[0][0]+(i[1]?i[1][0]:'')).toUpperCase()}</div><div class="lbl">${n}</div>`+(u?`<div class="badge">${u}</div>`:att?'<div class="dot"></div>':'');s.appendChild(t)}
+const i=n.replace(/\./g,'').trim().split(/\s+/);t.innerHTML=(on?'<div class="ring"></div>':'')+`<div class="ava" style="background:${c}">${(i[0][0]+(i[1]?i[1][0]:'')).toUpperCase()}</div><div class="lbl">${n}</div>`+(u?`<div class="badge">${u}</div>`:att?'<div class="dot"></div>':'');s.appendChild(t)}
 const add=document.createElement('div');add.className='tile';add.innerHTML='<div class="ic">+</div><div class="lbl">Добавить</div>';s.appendChild(add);
-if(location.search.includes('dialog'))document.getElementById('scrim').style.display='flex';
+document.getElementById('cs').innerHTML=COLORS.map(c=>`<span${c==='#ffa726'?' class="sel"':''} style="background:${c}"></span>`).join('');
+const G='<svg viewBox="0 0 24 24"><path d="M12 21 3.5 10.4 6.8 5.5h10.4l3.3 4.9z"/></svg>';
+for(const k of [1,2,3,4])document.getElementById('i'+k).innerHTML=G;
+const q=location.search;
+if(q.includes('dialog'))document.getElementById('scrim').style.display='flex';
+if(q.includes('menu')){document.getElementById('pop').style.display='block';document.querySelectorAll('.tile')[1].style.transform='scale(.92)';}
+if(q.includes('shade'))document.getElementById('shade').style.display='block';
 </script></body></html>

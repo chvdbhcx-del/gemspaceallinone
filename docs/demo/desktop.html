@@ -1,4 +1,26 @@
 <!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><title>Gemspace demo</title>
-<style>html,body{margin:0;height:100%;overflow:hidden}.w{display:flex;height:100%}iframe{border:0;height:100%}</style></head>
-<body><div class="w"><iframe src="../../desktop/ui/index.html" style="width:76px"></iframe><iframe src="chat.html" style="flex:1"></iframe></div></body></html>
+<!-- Demo window: the real rail UI (desktop/ui, demo-state.js feeds it) next to a made-up chat.
+     ?menu  = the account's right-click menu (in the app it is the native Windows menu, here a replica)
+     ?toast = a Windows notification with the account's name, as the app shows it -->
+<style>
+@font-face { font-family: "Nunito"; src: url("../../desktop/ui/fonts/Nunito.woff2") format("woff2"); font-weight: 200 1000; }
+html,body{margin:0;height:100%;overflow:hidden;background:#0e1621;font-family:"Segoe UI Variable","Segoe UI","Nunito",system-ui,sans-serif}
+.w{display:flex;height:100%}iframe{border:0;height:100%}
+.menu{position:fixed;left:64px;top:118px;width:228px;padding:4px;border-radius:8px;background:#2c2c2c;border:1px solid #3d3d3d;
+  box-shadow:0 8px 24px rgba(0,0,0,.45);color:#fff;font-size:14px;display:none}
+.menu div{padding:7px 12px;border-radius:4px}.menu div.h{background:#3a3a3a}.menu hr{border:0;border-top:1px solid #3d3d3d;margin:4px 2px}
+.toast{position:fixed;right:14px;bottom:14px;width:364px;padding:14px 16px 16px;border-radius:8px;background:#2c2c2c;border:1px solid #3d3d3d;
+  box-shadow:0 8px 28px rgba(0,0,0,.5);color:#fff;display:none}
+.toast .app{display:flex;align-items:center;gap:8px;font-size:12px;color:#c9c9c9;margin-bottom:12px}.toast .app img{width:16px;height:16px}
+.toast .app span{flex:1}.toast b{display:block;font-size:14px;font-weight:600;margin-bottom:2px}.toast p{margin:0;font-size:14px;color:#d6d6d6}
+.toast .row{display:flex;gap:12px}.toast .ava{width:48px;height:48px;border-radius:50%;background:#26a69a;display:grid;place-items:center;font:800 16px Nunito,sans-serif;flex:none}
+</style></head>
+<body><div class="w"><iframe src="../../desktop/ui/index.html" style="width:76px"></iframe><iframe src="chat.html" style="flex:1"></iframe></div>
+<div class="menu" id="menu"><div>Изменить…</div><div class="h">Перезагрузить</div><div>Усыпить сейчас</div><div>Не усыплять</div><div>Выше</div><div>Ниже</div><div>Удалить аккаунт…</div></div>
+<div class="toast" id="toast"><div class="app"><img src="../../desktop/icons/32x32.png" alt=""><span>Gemspace</span>✕</div>
+  <div><b>Поддержка · Денис Карпов</b><p>Добрый вечер! Когда будет возврат по заказу 2231?</p></div></div>
+<script>
+if (location.search.includes('menu')) document.getElementById('menu').style.display = 'block';
+if (location.search.includes('toast')) document.getElementById('toast').style.display = 'block';
+</script></body></html>

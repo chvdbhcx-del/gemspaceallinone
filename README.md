@@ -23,11 +23,11 @@
 
 <p align="center"><img src="docs/screens/desktop-main.png" width="100%" alt="Gemspace на Windows: слева рейл с семью аккаунтами и счётчиками, справа открытый аккаунт"></p>
 
-<p align="center"><img src="docs/screens/grid-desktop.png" width="100%" alt="Добавление аккаунта с цветом и прокси, настройки уведомлений и спящего режима"></p>
+<p align="center"><img src="docs/screens/grid-desktop.png" width="100%" alt="Windows: новый аккаунт с прокси, меню аккаунта, уведомление с именем аккаунта, настройки"></p>
 
-<p align="center"><img src="docs/screens/grid-phone.png" width="70%" alt="Android: полоса аккаунтов сверху, добавление аккаунта"></p>
+<p align="center"><img src="docs/screens/grid-phone.png" width="100%" alt="Android: аккаунты сверху, новый аккаунт, меню аккаунта, уведомления"></p>
 
-<sub>Скриншоты в демо-режиме: аккаунты и переписка выдуманные, а справа вместо Gem Space показан условный демо-чат. В приложении на этом месте открывается настоящая веб-версия Gem Space. ПК: окно 1440×900. Телефон: экран 390×844.</sub>
+<sub>Скриншоты в демо-режиме, аккаунты и переписка выдуманные. Справа вместо Gem Space показан условный демо-чат: в приложении на этом месте открывается настоящая веб-версия Gem Space. ПК: окно 1440×900. Телефон: экран 390×844. Снимает их `node docs/make-screens.js`, сетки собирает `python3 docs/make-grids.py`.</sub>
 
 ## Кому это нужно
 
@@ -93,7 +93,7 @@
 |---|---|
 | `desktop/` | Windows: Tauri 2 (Rust). Одно окно, рейл `ui/` и по WebView2 с отдельной папкой данных на аккаунт |
 | `android/` | Android: Kotlin. По WebView с отдельным профилем (`androidx.webkit` Profile) на аккаунт |
-| `docs/` | скриншоты и демо-режим для них (`node docs/make-screens.js`) |
+| `docs/` | скриншоты и демо-режим для них (`node docs/make-screens.js`, сетки `python3 docs/make-grids.py`) |
 
 Локально: `cd desktop && npx @tauri-apps/cli@2 build` (Windows) и `cd android && ./gradlew assembleRelease`.
 
