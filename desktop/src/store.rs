@@ -1,6 +1,7 @@
 //! Accounts and settings, saved as JSON in the app's config folder. Account data (cookies, storage)
 //! lives in <local data>/accounts/<id>, one WebView2 profile per account.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -42,12 +43,23 @@ impl Default for Settings {
     }
 }
 
+/// A label the user puts on chats of "Все чаты" ("Клиенты", "Оплата"), kept only on this computer.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Label {
+    pub id: String,
+    pub name: String,
+    pub color: String,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(default)]
 pub struct Store {
     pub accounts: Vec<Account>,
     pub active: Option<String>,
     pub settings: Settings,
+    pub labels: Vec<Label>,
+    /// "<account id>|<chat name>" -> label ids
+    pub chat_labels: BTreeMap<String, Vec<String>>,
     /// accounts whose data folder still has to be deleted
     pub pending_delete: Vec<String>,
 }
@@ -82,6 +94,134 @@ impl Store {
         let tmp = path.with_extension("json.tmp");
         fs::write(&tmp, serde_json::to_vec_pretty(self).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
         fs::rename(&tmp, &path).map_err(|e| e.to_string())
+    }
+}
+
+pub const MAX_LABELS: usize = 30;
+
+fn safe_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 40 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+}
+
+fn safe_color(c: &str) -> bool {
+    c.len() == 7 && c.starts_with('#') && c[1..].chars().all(|x| x.is_ascii_hexdigit())
+}
+
+/// Keeps only well-formed labels and assignments to labels that exist; trims names.
+pub fn clean_labels(labels: Vec<Label>, chat_labels: BTreeMap<String, Vec<String>>) -> (Vec<Label>, BTreeMap<String, Vec<String>>) {
+    let mut out: Vec<Label> = Vec::new();
+    for l in labels {
+        let name: String = l.name.trim().chars().take(30).collect();
+        if safe_id(&l.id) && safe_color(&l.color) && !name.is_empty() && !out.iter().any(|x| x.id == l.id) && out.len() < MAX_LABELS {
+            out.push(Label { id: l.id, name, color: l.color.to_lowercase() });
+        }
+    }
+    let mut map = BTreeMap::new();
+    for (key, ids) in chat_labels.into_iter().take(5000) {
+        if key.len() > 200 || !key.contains('|') {
+            continue;
+        }
+        let mut ids: Vec<String> = ids.into_iter().filter(|i| out.iter().any(|l| &l.id == i)).collect();
+        ids.dedup();
+        if !ids.is_empty() {
+            map.insert(key, ids);
+        }
+    }
+    (out, map)
+}
+
+/// The file "Резервная копия" writes: accounts (without logins), settings and labels. The same format on
+/// Windows and Android; settings are taken only from a file made on the same kind of device.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Backup {
+    pub app: String,
+    pub format: u32,
+    pub platform: String,
+    #[serde(default)]
+    pub accounts: Vec<Account>,
+    #[serde(default)]
+    pub settings: serde_json::Value,
+    #[serde(default)]
+    pub labels: Vec<Label>,
+    #[serde(default)]
+    pub chat_labels: BTreeMap<String, Vec<String>>,
+}
+
+pub const BACKUP_APP: &str = "hovi-space";
+
+impl Store {
+    pub fn backup(&self) -> Backup {
+        Backup {
+            app: BACKUP_APP.into(),
+            format: 1,
+            platform: "windows".into(),
+            accounts: self.accounts.clone(),
+            settings: serde_json::to_value(&self.settings).unwrap_or_default(),
+            labels: self.labels.clone(),
+            chat_labels: self.chat_labels.clone(),
+        }
+    }
+
+    /// Adds the file's accounts (an account already here by the same id gets its name, colour, proxy and
+    /// "не усыплять" from the file), its labels and, from a Windows file, its settings. Returns (added, updated).
+    pub fn restore(&mut self, b: Backup) -> Result<(usize, usize), String> {
+        if b.app != BACKUP_APP || b.format != 1 {
+            return Err("Это не резервная копия Hovi Space".into());
+        }
+        let (mut added, mut updated) = (0, 0);
+        let mut renamed: BTreeMap<String, String> = BTreeMap::new();
+        for a in b.accounts.into_iter().take(200) {
+            let name: String = a.name.trim().chars().take(40).collect();
+            let name = if name.is_empty() { format!("Аккаунт {}", self.accounts.len() + 1) } else { name };
+            let color = if safe_color(&a.color) { a.color.to_lowercase() } else { "#3aa0ff".into() };
+            let proxy = a.proxy.filter(|p| parse_proxy(p).is_ok());
+            if let Some(mine) = self.accounts.iter_mut().find(|m| m.id == a.id) {
+                mine.name = name;
+                mine.color = color;
+                mine.proxy = proxy;
+                mine.pinned = a.pinned;
+                updated += 1;
+            } else {
+                let id = if safe_id(&a.id) && !self.pending_delete.contains(&a.id) { a.id.clone() } else { new_id() };
+                if id != a.id {
+                    renamed.insert(a.id.clone(), id.clone());
+                }
+                self.accounts.push(Account { id, name, color, proxy, pinned: a.pinned });
+                added += 1;
+            }
+        }
+        if b.platform == "windows" {
+            if let Ok(s) = serde_json::from_value::<Settings>(b.settings) {
+                self.settings = Settings { max_awake: s.max_awake.clamp(1, 60), ui_scale: s.ui_scale.clamp(80, 150), ..s };
+            }
+        }
+        let mut labels = self.labels.clone();
+        for l in b.labels {
+            match labels.iter_mut().find(|x| x.id == l.id) {
+                Some(x) => *x = l,
+                None => labels.push(l),
+            }
+        }
+        let mut chat_labels = self.chat_labels.clone();
+        for (key, ids) in b.chat_labels {
+            let key = match key.split_once('|') {
+                Some((acc, chat)) => match renamed.get(acc) {
+                    Some(new) => format!("{new}|{chat}"),
+                    None => key.clone(),
+                },
+                None => continue,
+            };
+            let slot = chat_labels.entry(key).or_default();
+            for i in ids {
+                if !slot.contains(&i) {
+                    slot.push(i);
+                }
+            }
+        }
+        let (labels, chat_labels) = clean_labels(labels, chat_labels);
+        self.labels = labels;
+        self.chat_labels = chat_labels;
+        Ok((added, updated))
     }
 }
 
@@ -154,6 +294,47 @@ mod tests {
         assert!(parse_proxy("ftp://h:1").is_err());
         assert!(parse_proxy("socks5://u:p@h:1080").is_err());
         assert!(parse_proxy("host").is_err());
+    }
+
+    fn acc(id: &str, name: &str) -> Account {
+        Account { id: id.into(), name: name.into(), color: "#26a69a".into(), proxy: None, pinned: false }
+    }
+
+    #[test]
+    fn backup_round_trip() {
+        let mut a = Store { accounts: vec![acc("k1-0", "Продажи"), acc("k2-1", "Поддержка")], ..Default::default() };
+        a.settings.max_awake = 5;
+        a.labels = vec![Label { id: "l1".into(), name: "Клиенты".into(), color: "#ff4d4d".into() }];
+        a.chat_labels.insert("k1-0|Ирина".into(), vec!["l1".into()]);
+        let file = serde_json::to_string(&a.backup()).unwrap();
+
+        let mut b = Store { accounts: vec![acc("k2-1", "Старое имя")], ..Default::default() };
+        let (added, updated) = b.restore(serde_json::from_str(&file).unwrap()).unwrap();
+        assert_eq!((added, updated), (1, 1));
+        assert_eq!(b.accounts.iter().map(|x| x.name.as_str()).collect::<Vec<_>>(), ["Поддержка", "Продажи"]);
+        assert_eq!(b.settings.max_awake, 5);
+        assert_eq!(b.labels.len(), 1);
+        assert_eq!(b.chat_labels.get("k1-0|Ирина"), Some(&vec!["l1".to_string()]));
+    }
+
+    #[test]
+    fn backup_rejects_and_cleans() {
+        let mut s = Store::default();
+        let bad: Backup = serde_json::from_str(r#"{"app":"other","format":1,"platform":"windows"}"#).unwrap();
+        assert!(s.restore(bad).is_err());
+        let odd: Backup = serde_json::from_str(r##"{"app":"hovi-space","format":1,"platform":"android",
+            "settings":{"max_awake":2},
+            "accounts":[{"id":"../x","name":"  ","color":"red","proxy":"ftp://h:1","pinned":true}],
+            "labels":[{"id":"l1","name":"Оплата","color":"#00ff00"},{"id":"bad id","name":"x","color":"#000000"}],
+            "chat_labels":{"../x|Чат":["l1","nope"],"nobar":["l1"]}}"##).unwrap();
+        assert_eq!(s.restore(odd).unwrap(), (1, 0));
+        let a = &s.accounts[0];
+        assert!(safe_id(&a.id) && a.id != "../x");
+        assert_eq!((a.color.as_str(), a.proxy.is_none(), a.pinned), ("#3aa0ff", true, true));
+        assert_eq!(s.settings.max_awake, Settings::default().max_awake); // an Android file keeps these settings
+        assert_eq!(s.labels.len(), 1);
+        assert_eq!(s.chat_labels.get(&format!("{}|Чат", a.id)), Some(&vec!["l1".to_string()]));
+        assert_eq!(s.chat_labels.len(), 1);
     }
 
     #[test]

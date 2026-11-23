@@ -28,6 +28,9 @@ class Store(context: Context) {
     val accounts = mutableListOf<Account>()
     var active: String? = null
     val settings = Settings()
+    val labels = mutableListOf<Label>()
+    /** "<account id>|<chat name>" -> label ids */
+    val chatLabels = mutableMapOf<String, MutableList<String>>()
 
     init {
         load()
@@ -54,6 +57,24 @@ class Store(context: Context) {
         } catch (e: Exception) {
             accounts.clear()
         }
+        // labels are optional: a broken entry loses the labels, never the accounts
+        try {
+            val o = JSONObject(raw)
+            o.optJSONArray("labels")?.let { ls ->
+                for (i in 0 until ls.length()) {
+                    val l = ls.getJSONObject(i)
+                    labels += Label(l.getString("id"), l.getString("name"), l.getInt("color"))
+                }
+            }
+            o.optJSONObject("chatLabels")?.let { m ->
+                m.keys().forEach { k ->
+                    val v = m.getJSONArray(k)
+                    chatLabels[k] = MutableList(v.length()) { v.getString(it) }
+                }
+            }
+        } catch (e: Exception) {
+            labels.clear(); chatLabels.clear()
+        }
     }
 
     fun save() {
@@ -68,7 +89,12 @@ class Store(context: Context) {
             .put("sleepEnabled", settings.sleepEnabled)
             .put("maxAwake", settings.maxAwake)
             .put("uiScale", settings.uiScale)
+        val ls = JSONArray()
+        labels.forEach { ls.put(JSONObject().put("id", it.id).put("name", it.name).put("color", it.color)) }
+        val map = JSONObject()
+        chatLabels.forEach { (k, v) -> map.put(k, JSONArray(v)) }
         val o = JSONObject().put("accounts", arr).put("active", active ?: "").put("settings", s)
+            .put("labels", ls).put("chatLabels", map)
         prefs.edit().putString("state", o.toString()).apply()
     }
 

@@ -22,7 +22,10 @@ use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_opener::OpenerExt;
 
 use feed::{Feed, FeedItem};
-use store::{Account, Settings, Store};
+use std::collections::BTreeMap;
+
+use store::{Account, Label, Settings, Store};
+use tauri_plugin_dialog::DialogExt;
 
 pub const GEM_URL: &str = "https://web.gemspace.com/";
 const MAIN: &str = "main";
@@ -129,6 +132,8 @@ struct StateView {
     total_unread: u32,
     feed: Vec<FeedItem>,
     chats: HashMap<String, Vec<ChatRow>>,
+    labels: Vec<Label>,
+    chat_labels: BTreeMap<String, Vec<String>>,
     update: Option<update::UpdateView>,
     version: String,
 }
@@ -171,6 +176,8 @@ fn snapshot(app: &AppHandle) -> StateView {
         total_unread: total,
         feed: live.feed.items(),
         chats: live.chats.clone(),
+        labels: store.labels.clone(),
+        chat_labels: store.chat_labels.clone(),
         update: live.update.clone(),
         version: app.package_info().version.to_string(),
     }
@@ -504,6 +511,8 @@ async fn remove_account(app: AppHandle, id: String) -> Result<(), String> {
         let mut store = st.store.lock().unwrap();
         store.accounts.retain(|a| a.id != id);
         store.pending_delete.push(id.clone());
+        let prefix = format!("{id}|");
+        store.chat_labels.retain(|k, _| !k.starts_with(&prefix));
         let mut live = st.live.lock().unwrap();
         live.unread.remove(&id);
         live.attention.remove(&id);
@@ -599,6 +608,84 @@ async fn chat_open(app: AppHandle, account: String, name: String) -> Result<(), 
         let _ = wv.eval(format!("{}window.__gemspaceOpenChat && window.__gemspaceOpenChat({js_name})", focus_js(panel)));
     }
     Ok(())
+}
+
+/// Saves the labels and which chats carry them (the rail edits them, Rust only keeps them tidy).
+#[tauri::command]
+async fn set_labels(app: AppHandle, labels: Vec<Label>, chat_labels: BTreeMap<String, Vec<String>>) {
+    let (labels, chat_labels) = store::clean_labels(labels, chat_labels);
+    {
+        let st = app.state::<AppState>();
+        let mut store = st.store.lock().unwrap();
+        store.labels = labels;
+        store.chat_labels = chat_labels;
+    }
+    save(&app);
+    publish(&app);
+}
+
+/// Writes the backup file where the user picks; returns its path, or None when the dialog was closed.
+#[tauri::command]
+async fn backup_export(app: AppHandle) -> Result<Option<String>, String> {
+    let day = chrono_day();
+    let Some(path) = app
+        .dialog()
+        .file()
+        .set_title("Сохранить резервную копию")
+        .set_file_name(format!("Hovi Space {day}.json"))
+        .add_filter("Резервная копия Hovi Space", &["json"])
+        .blocking_save_file()
+    else {
+        return Ok(None);
+    };
+    let path = path.into_path().map_err(|e| e.to_string())?;
+    let backup = app.state::<AppState>().store.lock().unwrap().backup();
+    let json = serde_json::to_vec_pretty(&backup).map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| format!("Не удалось записать файл: {e}"))?;
+    Ok(Some(path.display().to_string()))
+}
+
+/// Reads a backup file the user picks and adds its accounts, settings and labels; returns what changed.
+#[tauri::command]
+async fn backup_import(app: AppHandle) -> Result<Option<String>, String> {
+    let Some(path) = app
+        .dialog()
+        .file()
+        .set_title("Восстановить из резервной копии")
+        .add_filter("Резервная копия Hovi Space", &["json"])
+        .blocking_pick_file()
+    else {
+        return Ok(None);
+    };
+    let path = path.into_path().map_err(|e| e.to_string())?;
+    let meta = std::fs::metadata(&path).map_err(|e| e.to_string())?;
+    if meta.len() > 5_000_000 {
+        return Err("Файл слишком большой для резервной копии Hovi Space".into());
+    }
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("Не удалось прочитать файл: {e}"))?;
+    let backup: store::Backup = serde_json::from_str(&text).map_err(|_| "Это не резервная копия Hovi Space".to_string())?;
+    let (added, updated) = app.state::<AppState>().store.lock().unwrap().restore(backup)?;
+    save(&app);
+    apply_scale(&app);
+    enforce_sleep(&app);
+    publish(&app);
+    Ok(Some(format!("Добавлено аккаунтов: {added}, обновлено: {updated}. В новые аккаунты нужно войти заново.")))
+}
+
+/// Today as YYYY-MM-DD in UTC, for the backup's file name.
+fn chrono_day() -> String {
+    let days = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() / 86_400).unwrap_or(0) as i64;
+    // civil-from-days (Howard Hinnant)
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + if m <= 2 { 1 } else { 0 };
+    format!("{y:04}-{m:02}-{d:02}")
 }
 
 /// Empties the feed, or only one account's rows.
@@ -763,6 +850,7 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)))
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             get_state,
@@ -784,7 +872,10 @@ pub fn run() {
             set_panel,
             acc_notify,
             acc_chats,
-            acc_hotkey
+            acc_hotkey,
+            set_labels,
+            backup_export,
+            backup_import
         ])
         .setup(|app| {
             let handle = app.handle().clone();

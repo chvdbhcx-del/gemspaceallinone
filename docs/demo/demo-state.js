@@ -54,6 +54,9 @@
         { name: 'Склад, смена 2', time: '12:28', preview: 'Паллеты на утро собраны, ждём машину', unread: 1, avatar: '' },
       ],
     },
+    // labels the user put on chats ("Все чаты", right click)
+    labels: [{ id: 'l1', name: 'Клиенты', color: '#26a69a' }, { id: 'l2', name: 'Ждут оплату', color: '#ffa726' }],
+    chat_labels: { 'a1|Ирина Морозова': ['l2'], 'a2|Денис Карпов': ['l1'], 'a1|Кафе «Терраса»': ['l1', 'l2'], 'a3|Опт: заявки': ['l1'] },
     version: '0.1.0',
   };
   if (/[?&]empty/.test(location.search)) { state.accounts = []; state.active = null; state.feed = []; state.chats = {}; state.total_unread = 0; }
