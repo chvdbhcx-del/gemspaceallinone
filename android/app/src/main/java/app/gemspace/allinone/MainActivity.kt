@@ -156,17 +156,19 @@ class MainActivity : AppCompatActivity() {
         }
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(6), dp(4), dp(6), dp(4))
+            gravity = Gravity.TOP
+            setPadding(dp(4), dp(4), dp(4), dp(2))
         }
-        strip = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        strip = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.TOP }
         val scroll = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
+            // a tile cut by the screen edge fades out instead of ending abruptly
+            isHorizontalFadingEdgeEnabled = true
+            setFadingEdgeLength(dp(24))
             addView(strip)
         }
         bar.addView(scroll, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        bar.addView(toolButton("+", "Добавить аккаунт") { editAccount(null) })
-        bar.addView(toolButton("⚙", "Настройки") { openSettings() })
+        bar.addView(toolTile("⚙", "Настройки") { openSettings() })
         root.addView(bar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         pages = FrameLayout(this).apply { setBackgroundColor(ContextCompat.getColor(context, R.color.page)) }
@@ -203,57 +205,105 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun toolButton(label: String, desc: String, onClick: () -> Unit) = TextView(this).apply {
-        text = label
+    // Every tile of the bar has the same geometry: TILE_W x TILE_H, a round AVATAR_SIZE icon centred at the top
+    // and a one-line label at the bottom, so accounts and the + / settings buttons line up.
+    private fun tileFrame(desc: String) = FrameLayout(this).apply {
+        layoutParams = LinearLayout.LayoutParams(dp(TILE_W), dp(TILE_H))
         contentDescription = desc
-        textSize = 20f
+    }
+
+    private fun tileLabel(text: String, strong: Boolean) = TextView(this).apply {
+        this.text = text
+        textSize = 10f
+        maxLines = 1
         gravity = Gravity.CENTER
-        setTextColor(ContextCompat.getColor(context, R.color.muted))
-        layoutParams = LinearLayout.LayoutParams(dp(44), dp(44)).apply { marginStart = dp(2) }
-        background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setStroke(dp(1), ContextCompat.getColor(context, R.color.line)) }
+        setPadding(dp(2), 0, dp(2), 0)
+        ellipsize = android.text.TextUtils.TruncateAt.END
+        setTextColor(ContextCompat.getColor(context, if (strong) R.color.fg else R.color.muted))
+    }
+
+    private fun iconParams() =
+        FrameLayout.LayoutParams(dp(AVATAR_SIZE), dp(AVATAR_SIZE), Gravity.CENTER_HORIZONTAL or Gravity.TOP).apply { topMargin = dp(AVATAR_TOP) }
+
+    private fun labelParams() =
+        FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM)
+
+    private fun toolTile(symbol: String, label: String, onClick: () -> Unit) = tileFrame(label).apply {
+        addView(TextView(context).apply {
+            text = symbol
+            textSize = 20f
+            gravity = Gravity.CENTER
+            setTextColor(ContextCompat.getColor(context, R.color.muted))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setStroke(dp(1), ContextCompat.getColor(context, R.color.line))
+            }
+        }, iconParams())
+        addView(tileLabel(label, false), labelParams())
         setOnClickListener { onClick() }
     }
 
     private fun render() {
         strip.removeAllViews()
+        val accent = 0xFF3AA0FF.toInt()
         for (a in store.accounts) {
-            val tile = FrameLayout(this).apply {
-                layoutParams = LinearLayout.LayoutParams(dp(58), dp(60))
+            val active = a.id == store.active
+            val tile = tileFrame(a.name).apply {
                 setOnClickListener { switchTo(a.id) }
                 setOnLongClickListener { accountMenu(this, a); true }
-                contentDescription = a.name
             }
-            val active = a.id == store.active
-            val ava = TextView(this).apply {
+            if (active) {
+                // the ring goes around the avatar, so the avatar keeps its size and position
+                tile.addView(View(this).apply {
+                    background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setStroke(dp(2), accent) }
+                }, FrameLayout.LayoutParams(dp(RING_SIZE), dp(RING_SIZE), Gravity.CENTER_HORIZONTAL or Gravity.TOP).apply {
+                    topMargin = dp(AVATAR_TOP - (RING_SIZE - AVATAR_SIZE) / 2)
+                })
+            }
+            tile.addView(TextView(this).apply {
                 text = Store.initials(a.name)
+                textSize = 15f
                 setTextColor(Color.WHITE)
                 setTypeface(typeface, Typeface.BOLD)
                 gravity = Gravity.CENTER
-                background = GradientDrawable().apply {
-                    shape = GradientDrawable.OVAL
-                    setColor(a.color)
-                    if (active) setStroke(dp(3), ContextCompat.getColor(context, R.color.fg))
-                }
+                background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(a.color) }
                 alpha = if (views.containsKey(a.id) || active) 1f else 0.55f
-            }
-            tile.addView(ava, FrameLayout.LayoutParams(dp(40), dp(40), Gravity.CENTER_HORIZONTAL or Gravity.TOP).apply { topMargin = dp(2) })
-            tile.addView(TextView(this).apply {
-                text = a.name; textSize = 10f; maxLines = 1; gravity = Gravity.CENTER
-                ellipsize = android.text.TextUtils.TruncateAt.END
-                setTextColor(ContextCompat.getColor(context, if (active) R.color.fg else R.color.muted))
-            }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
+            }, iconParams())
+            tile.addView(tileLabel(a.name, active), labelParams())
+            // badge on the avatar's top right corner, the same place on every tile
             val n = unread[a.id] ?: 0
-            if (n > 0 || a.id in attention) {
+            val avatarRight = (TILE_W + AVATAR_SIZE) / 2
+            if (n > 0) {
                 tile.addView(TextView(this).apply {
-                    text = if (n > 99) "99+" else if (n > 0) n.toString() else ""
-                    textSize = 10f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
+                    text = if (n > 99) "99+" else n.toString()
+                    textSize = 10f
+                    setTextColor(Color.WHITE)
+                    setTypeface(typeface, Typeface.BOLD)
+                    gravity = Gravity.CENTER
                     setPadding(dp(4), 0, dp(4), 0)
-                    minWidth = dp(if (n > 0) 18 else 10)
-                    background = GradientDrawable().apply { cornerRadius = dp(9).toFloat(); setColor(0xFF3AA0FF.toInt()); setStroke(dp(2), ContextCompat.getColor(context, R.color.bar)) }
-                }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(if (n > 0) 18 else 10), Gravity.END or Gravity.TOP).apply { marginEnd = dp(4) })
+                    minWidth = dp(18)
+                    background = GradientDrawable().apply {
+                        cornerRadius = dp(9).toFloat(); setColor(accent)
+                        setStroke(dp(2), ContextCompat.getColor(context, R.color.bar))
+                    }
+                }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(18), Gravity.START or Gravity.TOP).apply {
+                    leftMargin = dp(avatarRight - 12)
+                    topMargin = dp(AVATAR_TOP - 4)
+                })
+            } else if (a.id in attention) {
+                tile.addView(View(this).apply {
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.OVAL; setColor(accent)
+                        setStroke(dp(2), ContextCompat.getColor(context, R.color.bar))
+                    }
+                }, FrameLayout.LayoutParams(dp(12), dp(12), Gravity.START or Gravity.TOP).apply {
+                    leftMargin = dp(avatarRight - 10)
+                    topMargin = dp(AVATAR_TOP - 1)
+                })
             }
             strip.addView(tile)
         }
+        strip.addView(toolTile("+", "Добавить") { editAccount(null) })
         welcome.visibility = if (store.accounts.isEmpty()) View.VISIBLE else View.GONE
         for ((id, wv) in views) wv.visibility = if (id == store.active) View.VISIBLE else View.GONE
         Notifier.updateKeepAlive(this, unread.values.sum())
@@ -590,5 +640,12 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         const val GEM_URL = "https://web.gemspace.com/"
+
+        // geometry of the bar tiles, dp
+        private const val TILE_W = 62
+        private const val TILE_H = 66
+        private const val AVATAR_SIZE = 44
+        private const val AVATAR_TOP = 5
+        private const val RING_SIZE = 52
     }
 }
