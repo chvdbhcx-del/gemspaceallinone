@@ -219,14 +219,14 @@ class MainActivity : AppCompatActivity() {
                 setPadding(dp(14), dp(12), dp(14), dp(12))
                 background = GradientDrawable().apply {
                     cornerRadius = dp(16).toFloat()
-                    setColor(ContextCompat.getColor(context, R.color.bar))
+                    setColor(ContextCompat.getColor(context, R.color.card))
                     setStroke(dp(1), ContextCompat.getColor(context, R.color.line))
                 }
                 addView(ImageView(context).apply {
                     setImageResource(icon)
-                    setColorFilter(0xFF3AA0FF.toInt())
+                    setColorFilter(ContextCompat.getColor(this@MainActivity, R.color.accent))
                     setPadding(dp(9), dp(9), dp(9), dp(9))
-                    background = GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(0x2E3AA0FF) }
+                    background = GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(0x29FF4D4D) }
                 }, LinearLayout.LayoutParams(dp(38), dp(38)).apply { marginEnd = dp(14) })
                 addView(LinearLayout(context).apply {
                     orientation = LinearLayout.VERTICAL
@@ -242,7 +242,7 @@ class MainActivity : AppCompatActivity() {
             addView(TextView(context).apply {
                 text = "Добавить первый аккаунт"; gravity = Gravity.CENTER; textSize = 16f; typeface = fontHeavy
                 setTextColor(Color.WHITE); setPadding(dp(24), dp(15), dp(24), dp(15))
-                background = GradientDrawable().apply { cornerRadius = dp(14).toFloat(); setColor(0xFF3AA0FF.toInt()) }
+                background = GradientDrawable().apply { cornerRadius = dp(14).toFloat(); setColor(ContextCompat.getColor(this@MainActivity, R.color.accent)) }
                 elevation = dp(6).toFloat()
                 setOnClickListener { editAccount(null) }
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(14) })
@@ -322,7 +322,7 @@ class MainActivity : AppCompatActivity() {
     /** The feed button left of the accounts, shaped like an account tile, with the count of new messages. */
     private fun renderFeedTile() {
         feedSlot.removeAllViews()
-        val accent = 0xFF3AA0FF.toInt()
+        val accent = ContextCompat.getColor(this@MainActivity, R.color.accent)
         val n = feed.size
         val tile = tileFrame("Лента").apply { setOnClickListener { openFeed() } }
         tile.addView(ImageView(this).apply {
@@ -389,7 +389,7 @@ class MainActivity : AppCompatActivity() {
                 setPadding(dp(12), dp(10), dp(12), dp(10))
                 background = GradientDrawable().apply {
                     cornerRadius = dp(14).toFloat()
-                    setColor(ContextCompat.getColor(context, R.color.page))
+                    setColor(ContextCompat.getColor(context, R.color.card))
                     setStroke(dp(1), ContextCompat.getColor(context, R.color.line))
                 }
                 isClickable = true
@@ -407,7 +407,7 @@ class MainActivity : AppCompatActivity() {
             val texts = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             top.addView(TextView(this).apply {
-                text = a.name; textSize = 12f; typeface = fontHeavy; setTextColor(0xFF3AA0FF.toInt()); maxLines = 1
+                text = a.name; textSize = 12f; typeface = fontHeavy; setTextColor(ContextCompat.getColor(this@MainActivity, R.color.accent)); maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             top.addView(TextView(this).apply { text = feedTime(item.time); textSize = 12f; setTextColor(muted) })
@@ -449,7 +449,7 @@ class MainActivity : AppCompatActivity() {
     private fun render() {
         renderFeedTile()
         strip.removeAllViews()
-        val accent = 0xFF3AA0FF.toInt()
+        val accent = ContextCompat.getColor(this@MainActivity, R.color.accent)
         for (a in store.accounts) {
             val active = a.id == store.active
             val tile = tileFrame(a.name).apply {

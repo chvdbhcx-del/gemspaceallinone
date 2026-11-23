@@ -1,15 +1,15 @@
 /* A generic made-up messenger page for demo screenshots. It is NOT Gem Space's interface:
    in the app this place shows the real web.gemspace.com of the account. */
 @font-face { font-family: "Nunito"; src: url("../../desktop/ui/fonts/Nunito.woff2") format("woff2"); font-weight: 200 1000; }
-:root { --bg:#0f1720; --side:#17212b; --fg:#e9eef3; --muted:#8a99a8; --me:#2b5278; --them:#1f2b38; --line:#22303e; --acc:#3aa0ff; --sel:#2b5278; }
+:root { --bg:#141416; --side:#101011; --fg:#f0eff1; --muted:#8e8d93; --me:#3a2c2e; --them:#28272a; --line:#2a292d; --acc:#ff4d4d; --sel:#323135; }
 * { box-sizing: border-box; }
 html, body { margin:0; height:100%; font:500 14px/1.4 "Nunito", system-ui, sans-serif; color:var(--fg); background:var(--bg); -webkit-font-smoothing:antialiased; }
 .app { display:flex; height:100%; }
 .list { width:340px; background:var(--side); border-right:1px solid var(--line); display:flex; flex-direction:column; }
-.search { margin:12px; padding:9px 14px; border-radius:18px; background:#0f1720; color:var(--muted); }
+.search { margin:12px; padding:9px 14px; border-radius:18px; background:#323135; color:var(--muted); }
 .item { display:flex; gap:12px; padding:9px 12px; align-items:center; margin:0 6px; border-radius:12px; }
 .item.on { background:var(--sel); }
-.item.on .prev, .item.on .time { color:#c8d6e3; }
+.item.on .prev, .item.on .time { color:#d4d3d8; }
 .av { width:48px; height:48px; border-radius:50%; flex:none; display:grid; place-items:center; color:#fff; font-weight:800; font-size:16px; }
 .meta { flex:1; min-width:0; }
 .row { display:flex; justify-content:space-between; gap:6px; align-items:center; }
@@ -26,15 +26,15 @@ html, body { margin:0; height:100%; font:500 14px/1.4 "Nunito", system-ui, sans-
 .head .ic { width:36px; height:36px; display:grid; place-items:center; color:var(--muted); }
 .head .ic svg { width:20px; height:20px; fill:currentColor; }
 .msgs { flex:1; padding:18px 10% 14px; display:flex; flex-direction:column; gap:6px; justify-content:flex-end;
-  background:radial-gradient(circle at 20% 10%, #16222e 0, transparent 50%), radial-gradient(circle at 90% 80%, #142430 0, transparent 50%), var(--bg); }
+  background:var(--bg); }
 .b { max-width:62%; padding:8px 12px 6px; border-radius:16px 16px 16px 6px; background:var(--them); }
 .b.me { align-self:flex-end; background:var(--me); border-radius:16px 16px 6px 16px; }
 .b i { display:block; text-align:right; font-style:normal; font-size:11px; color:var(--muted); margin-top:1px; }
-.b.me i { color:#9fc1e0; }
+.b.me i { color:#c9b3b5; }
 .b .file { display:flex; gap:10px; align-items:center; padding:2px 0 4px; }
 .b .file span { width:40px; height:40px; border-radius:50%; background:var(--acc); display:grid; place-items:center; font-weight:800; font-size:11px; }
 .b .file small { display:block; color:var(--muted); font-size:12px; }
-.day { align-self:center; font-size:12px; font-weight:700; color:#c8d6e3; background:rgba(255,255,255,.07); padding:3px 12px; border-radius:12px; margin:6px 0; }
+.day { align-self:center; font-size:12px; font-weight:700; color:#d4d3d8; background:rgba(255,255,255,.07); padding:3px 12px; border-radius:12px; margin:6px 0; }
 .input { height:58px; background:var(--side); border-top:1px solid var(--line); display:flex; align-items:center; gap:12px; padding:0 18px; color:var(--muted); }
 .input .sp { flex:1; }
 .input svg { width:22px; height:22px; fill:currentColor; }

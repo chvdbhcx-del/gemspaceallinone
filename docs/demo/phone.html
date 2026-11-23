@@ -4,7 +4,7 @@
      The page below the strip is a made-up chat. ?dialog = new account, ?menu = long-press menu, ?shade = notifications. -->
 <style>
 @font-face { font-family: "Nunito"; src: url("../../desktop/ui/fonts/Nunito.woff2") format("woff2"); font-weight: 200 1000; }
-:root{--bar:#0e1621;--page:#17212b;--fg:#e9eef3;--muted:#8a99a8;--line:#2b3a4a;--acc:#3aa0ff;--float:#2a333d}
+:root{--bar:#101011;--page:#101011;--card:#1d1c1f;--fg:#f0eff1;--muted:#8e8d93;--line:#2a292d;--acc:#ff4d4d;--float:#28272a}
 html,body{margin:0;height:100%;font:500 14px/1.4 "Nunito",system-ui,sans-serif;background:var(--bar);color:var(--fg);overflow:hidden;-webkit-font-smoothing:antialiased}
 .status{height:30px;display:flex;justify-content:space-between;align-items:center;padding:0 20px;font-size:13px;font-weight:700}
 .status svg{width:14px;height:14px;fill:currentColor;margin-left:5px;vertical-align:-2px}
@@ -32,7 +32,7 @@ iframe{border:0;width:100%;height:calc(100% - 102px - 16px);display:block;backgr
 .btns{display:flex;justify-content:flex-end;gap:8px;padding:14px 0 4px;color:var(--acc);font-weight:800;text-transform:uppercase;font-size:14px;letter-spacing:.03em}
 .btns span{padding:10px 8px}
 .dlg.feed{width:350px;padding:20px 10px 6px;max-height:760px;overflow:hidden}.dlg.feed h3{padding:0 14px}
-.fr{display:flex;gap:12px;padding:10px 12px;border-radius:14px;background:var(--page);border:1px solid var(--line);margin-bottom:6px}
+.fr{display:flex;gap:12px;padding:10px 12px;border-radius:14px;background:var(--card);border:1px solid var(--line);margin-bottom:6px}
 .fr .a{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:800;flex:none}
 .fr .m{flex:1;min-width:0}.fr .t{display:flex;justify-content:space-between;font-size:12px}.fr .t b{color:var(--acc);font-weight:800}.fr .t span{color:var(--muted)}
 .fr .fn{font-weight:800;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.fr .x{color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
@@ -60,7 +60,7 @@ iframe{border:0;width:100%;height:calc(100% - 102px - 16px);display:block;backgr
   <div class="n first"><span class="i" style="background:#26a69a" id="i1"></span><div><small>Gemspace · сейчас</small><b>Поддержка · Денис Карпов</b><p>Добрый вечер! Когда будет возврат по заказу 2231?</p></div></div>
   <div class="n mid"><span class="i" style="background:#7e57c2" id="i2"></span><div><small>Gemspace · 2 мин</small><b>Опт · Марк</b><p>Нужно 40 коробок к пятнице</p></div></div>
   <div class="n mid"><span class="i" style="background:#ffa726" id="i3"></span><div><small>Gemspace · 9 мин</small><b>Магазин · Ольга</b><p>Спасибо, всё пришло!</p></div></div>
-  <div class="n last"><span class="i" style="background:#3aa0ff" id="i4"></span><div><small>Gemspace</small><b>Gemspace на связи</b><p>Непрочитанных: 19</p></div></div>
+  <div class="n last"><span class="i" style="background:#ff4d4d" id="i4"></span><div><small>Gemspace</small><b>Gemspace на связи</b><p>Непрочитанных: 19</p></div></div>
 </div>
 <script>
 // same accounts as docs/demo/demo-state.js: name, color, unread, attention, active, awake
