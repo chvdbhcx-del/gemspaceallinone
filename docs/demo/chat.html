@@ -1,10 +1,55 @@
-<!doctype html><html lang="ru"><head><meta charset="utf-8"><link rel="stylesheet" href="chat.css"></head><body>
-<div class="app"><div class="list"><div class="search">Поиск</div><div class="item on"><div class="av" style="background:#ec407a">И</div><div class="meta"><div class="row"><span class="name">Ирина</span><span class="time">12:41</span></div><div class="row"><span class="prev">Счёт получила, оплачу сегодня</span><span class="cnt">2</span></div></div></div><div class="item"><div class="av" style="background:#7e57c2">О</div><div class="meta"><div class="row"><span class="name">Опт: заявки</span><span class="time">12:30</span></div><div class="row"><span class="prev">Марк: Нужно 40 коробок к пятнице</span></div></div></div><div class="item"><div class="av" style="background:#26a69a">Д</div><div class="meta"><div class="row"><span class="name">Денис</span><span class="time">11:58</span></div><div class="row"><span class="prev">Ок, жду трек-номер</span><span class="cnt">1</span></div></div></div><div class="item"><div class="av" style="background:#ffa726">О</div><div class="meta"><div class="row"><span class="name">Ольга</span><span class="time">11:20</span></div><div class="row"><span class="prev">Спасибо, всё пришло!</span></div></div></div><div class="item"><div class="av" style="background:#66bb6a">К</div><div class="meta"><div class="row"><span class="name">Кафе «Терраса»</span><span class="time">10:05</span></div><div class="row"><span class="prev">Можно перенести доставку?</span><span class="cnt">1</span></div></div></div><div class="item"><div class="av" style="background:#8d6e63">С</div><div class="meta"><div class="row"><span class="name">Сергей</span><span class="time">Вчера</span></div><div class="row"><span class="prev">Фото товара</span></div></div></div><div class="item"><div class="av" style="background:#3aa0ff">Л</div><div class="meta"><div class="row"><span class="name">Лиза</span><span class="time">Вчера</span></div><div class="row"><span class="prev">Хорошо</span></div></div></div></div>
-<div class="chat"><div class="head"><div class="av" style="background:#ec407a;width:38px;height:38px">И</div><div><b>Ирина</b><small>в сети</small></div></div>
-<div class="msgs"><span class="day">Сегодня</span>
-<div class="b">Здравствуйте! Можно счёт на 12 позиций из вчерашнего списка?<i>12:02</i></div>
-<div class="b me">Добрый день, Ирина! Отправил счёт, оплата до пятницы.<i>12:10 ✓✓</i></div>
-<div class="b">А доставка в субботу возможна?<i>12:31</i></div>
-<div class="b me">Да, в субботу с 10 до 14. Привезём всё одной машиной.<i>12:35 ✓✓</i></div>
-<div class="b">Счёт получила, оплачу сегодня 👍<i>12:41</i></div></div><div class="input">Сообщение…</div></div></div>
-<span class="demo">демо-чат, не интерфейс Gem Space</span></body></html>
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<!-- A made-up messenger page standing in for web.gemspace.com in demo screenshots. Not Gem Space's interface. ?phone = narrow chat view. -->
+<link rel="stylesheet" href="chat.css">
+<style>
+.phone .list { display:none; } .phone .msgs { padding:12px; } .phone .b { max-width:82%; } .phone .head { padding:0 10px; gap:10px; }
+.phone .demo { bottom:66px; }
+</style></head><body>
+<div class="app" id="app"></div>
+<script>
+const CHATS = [
+  ['Ирина Морозова', '#ec407a', '12:41', 'Счёт получила, оплачу сегодня 👍', 2, 1],
+  ['Опт: заявки', '#7e57c2', '12:30', '<b>Марк:</b> Нужно 40 коробок к пятнице', 5, 0, 1],
+  ['Денис Карпов', '#26a69a', '11:58', 'Ок, жду трек-номер', 1],
+  ['Ольга', '#ffa726', '11:20', 'Спасибо, всё пришло!'],
+  ['Кафе «Терраса»', '#66bb6a', '10:05', 'Можно перенести доставку на среду?', 1],
+  ['Сергей Лебедев', '#8d6e63', 'Вчера', '📷 Фото товара'],
+  ['Склад, смена 2', '#3aa0ff', 'Вчера', '<b>Вы:</b> Отгрузка в 9:00'],
+  ['Лиза', '#ef5350', 'Пн', 'Хорошо, договорились'],
+  ['Бухгалтерия', '#5c6bc0', 'Пн', '📄 Акт сверки за октябрь.pdf'],
+];
+const MSGS = [
+  ['day', 'Сегодня'],
+  ['', 'Здравствуйте! Можно счёт на 12 позиций из вчерашнего списка?', '12:02'],
+  ['me', 'Добрый день, Ирина! Сейчас пришлю.', '12:06'],
+  ['me', '<div class="file"><span>PDF</span><div>Счёт №418.pdf<small>184 КБ</small></div></div>Оплата до пятницы.', '12:10'],
+  ['', 'А доставка в субботу возможна?', '12:31'],
+  ['me', 'Да, в субботу с 10 до 14. Привезём всё одной машиной.', '12:35'],
+  ['', 'Отлично, тогда суббота', '12:40'],
+  ['', 'Счёт получила, оплачу сегодня 👍', '12:41'],
+];
+const SVG = {
+  search: '<path d="M10 3a7 7 0 0 1 5.6 11.2l4.6 4.6-1.4 1.4-4.6-4.6A7 7 0 1 1 10 3zm0 2a5 5 0 1 0 0 10 5 5 0 0 0 0-10z"/>',
+  phone: '<path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25c1.1.37 2.3.57 3.6.57a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z"/>',
+  more: '<path d="M12 7a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm0 7a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm0 7a2 2 0 1 1 0-4 2 2 0 0 1 0 4z"/>',
+  clip: '<path d="M16.5 6.5v10.6a4.5 4.5 0 0 1-9 0V5a3 3 0 0 1 6 0v10.5a1.5 1.5 0 0 1-3 0V6.5H9v9a3 3 0 0 0 6 0V5a4.5 4.5 0 0 0-9 0v12.1a6 6 0 0 0 12 0V6.5z"/>',
+  mic: '<path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1A7 7 0 0 0 19 11z"/>',
+  back: '<path d="M20 11H7.8l5.6-5.6L12 4l-8 8 8 8 1.4-1.4L7.8 13H20z"/>',
+};
+const icon = (n) => `<span class="ic"><svg viewBox="0 0 24 24">${SVG[n]}</svg></span>`;
+const ini = (n) => n.replace(/[«»:,]/g, '').split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+const phone = location.search.includes('phone');
+if (phone) document.body.classList.add('phone');
+const list = CHATS.map(([n, c, t, p, u, on, mute]) => `<div class="item${on ? ' on' : ''}"><div class="av" style="background:${c}">${ini(n)}</div>
+  <div class="meta"><div class="row"><span class="name">${n}</span><span class="time">${t}</span></div>
+  <div class="row"><span class="prev">${p}</span>${u ? `<span class="cnt${mute ? ' mute' : ''}">${u}</span>` : ''}</div></div></div>`).join('');
+const msgs = MSGS.map(([k, x, t]) => k === 'day' ? `<span class="day">${x}</span>`
+  : `<div class="b ${k}">${x}<i>${t}${k === 'me' ? ' ✓✓' : ''}</i></div>`).join('');
+document.getElementById('app').innerHTML = `<div class="list"><div class="search">Поиск</div>${list}</div>
+<div class="chat"><div class="head">${phone ? icon('back') : ''}<div class="av" style="background:#ec407a;width:40px;height:40px;font-size:14px">ИМ</div>
+  <div><b>Ирина Морозова</b><small>в сети</small></div><span class="sp"></span>${phone ? '' : icon('search')}${icon('phone')}${icon('more')}</div>
+  <div class="msgs">${msgs}</div>
+  <div class="input"><svg viewBox="0 0 24 24">${SVG.clip}</svg><span class="sp">Сообщение…</span><svg viewBox="0 0 24 24">${SVG.mic}</svg></div></div>
+<span class="demo">демо-чат</span>`;
+</script></body></html>

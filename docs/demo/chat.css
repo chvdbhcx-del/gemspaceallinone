@@ -1,27 +1,41 @@
-/* A generic made-up messenger page for demo screenshots. It is NOT Gem Space's interface. */
-:root { --bg:#f4f6f8; --side:#fff; --fg:#17212b; --muted:#6b7884; --me:#d9ecff; --them:#fff; --line:#e3e8ec; --acc:#3aa0ff; }
+/* A generic made-up messenger page for demo screenshots. It is NOT Gem Space's interface:
+   in the app this place shows the real web.gemspace.com of the account. */
+@font-face { font-family: "Nunito"; src: url("../../desktop/ui/fonts/Nunito.woff2") format("woff2"); font-weight: 200 1000; }
+:root { --bg:#0f1720; --side:#17212b; --fg:#e9eef3; --muted:#8a99a8; --me:#2b5278; --them:#1f2b38; --line:#22303e; --acc:#3aa0ff; --sel:#2b5278; }
 * { box-sizing: border-box; }
-html, body { margin:0; height:100%; font:14px/1.4 "Segoe UI", system-ui, sans-serif; color:var(--fg); background:var(--bg); }
+html, body { margin:0; height:100%; font:500 14px/1.4 "Nunito", system-ui, sans-serif; color:var(--fg); background:var(--bg); -webkit-font-smoothing:antialiased; }
 .app { display:flex; height:100%; }
-.list { width:320px; background:var(--side); border-right:1px solid var(--line); display:flex; flex-direction:column; }
-.search { margin:12px; padding:8px 12px; border-radius:18px; background:#eef2f5; color:var(--muted); }
-.item { display:flex; gap:10px; padding:9px 12px; align-items:center; }
-.item.on { background:#e6f2ff; }
-.av { width:44px; height:44px; border-radius:50%; flex:none; display:grid; place-items:center; color:#fff; font-weight:600; }
+.list { width:340px; background:var(--side); border-right:1px solid var(--line); display:flex; flex-direction:column; }
+.search { margin:12px; padding:9px 14px; border-radius:18px; background:#0f1720; color:var(--muted); }
+.item { display:flex; gap:12px; padding:9px 12px; align-items:center; margin:0 6px; border-radius:12px; }
+.item.on { background:var(--sel); }
+.item.on .prev, .item.on .time { color:#c8d6e3; }
+.av { width:48px; height:48px; border-radius:50%; flex:none; display:grid; place-items:center; color:#fff; font-weight:800; font-size:16px; }
 .meta { flex:1; min-width:0; }
-.row { display:flex; justify-content:space-between; gap:6px; }
-.name { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.time { color:var(--muted); font-size:12px; }
-.prev { color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:13px; }
-.cnt { background:var(--acc); color:#fff; border-radius:10px; font-size:11px; padding:0 6px; font-weight:700; line-height:18px; }
+.row { display:flex; justify-content:space-between; gap:6px; align-items:center; }
+.name { font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.time { color:var(--muted); font-size:12px; flex:none; }
+.prev { color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:13.5px; }
+.prev b { color:var(--fg); font-weight:700; }
+.cnt { background:var(--acc); color:#fff; border-radius:10px; font-size:11px; padding:0 7px; font-weight:800; line-height:20px; flex:none; }
+.cnt.mute { background:#4a5a6a; }
 .chat { flex:1; display:flex; flex-direction:column; min-width:0; }
-.head { height:58px; background:var(--side); border-bottom:1px solid var(--line); display:flex; align-items:center; gap:10px; padding:0 16px; }
-.head small { display:block; color:var(--muted); font-size:12px; }
-.msgs { flex:1; padding:18px 22px; display:flex; flex-direction:column; gap:8px; justify-content:flex-end;
-  background:linear-gradient(160deg,#e8f1f8,#eef0f7); }
-.b { max-width:62%; padding:8px 12px; border-radius:14px; background:var(--them); box-shadow:0 1px 1px rgba(0,0,0,.06); }
-.b.me { align-self:flex-end; background:var(--me); }
-.b i { display:block; text-align:right; font-style:normal; font-size:11px; color:var(--muted); }
-.day { align-self:center; font-size:12px; color:#fff; background:rgba(0,0,0,.25); padding:2px 10px; border-radius:10px; }
-.input { height:56px; background:var(--side); border-top:1px solid var(--line); display:flex; align-items:center; padding:0 16px; color:var(--muted); }
-.demo { position:fixed; right:10px; bottom:66px; font-size:11px; color:#fff; background:rgba(0,0,0,.35); padding:2px 8px; border-radius:8px; }
+.head { height:60px; background:var(--side); border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; padding:0 18px; }
+.head small { display:block; color:var(--acc); font-size:12.5px; font-weight:600; }
+.head .sp { flex:1; }
+.head .ic { width:36px; height:36px; display:grid; place-items:center; color:var(--muted); }
+.head .ic svg { width:20px; height:20px; fill:currentColor; }
+.msgs { flex:1; padding:18px 10% 14px; display:flex; flex-direction:column; gap:6px; justify-content:flex-end;
+  background:radial-gradient(circle at 20% 10%, #16222e 0, transparent 50%), radial-gradient(circle at 90% 80%, #142430 0, transparent 50%), var(--bg); }
+.b { max-width:62%; padding:8px 12px 6px; border-radius:16px 16px 16px 6px; background:var(--them); }
+.b.me { align-self:flex-end; background:var(--me); border-radius:16px 16px 6px 16px; }
+.b i { display:block; text-align:right; font-style:normal; font-size:11px; color:var(--muted); margin-top:1px; }
+.b.me i { color:#9fc1e0; }
+.b .file { display:flex; gap:10px; align-items:center; padding:2px 0 4px; }
+.b .file span { width:40px; height:40px; border-radius:50%; background:var(--acc); display:grid; place-items:center; font-weight:800; font-size:11px; }
+.b .file small { display:block; color:var(--muted); font-size:12px; }
+.day { align-self:center; font-size:12px; font-weight:700; color:#c8d6e3; background:rgba(255,255,255,.07); padding:3px 12px; border-radius:12px; margin:6px 0; }
+.input { height:58px; background:var(--side); border-top:1px solid var(--line); display:flex; align-items:center; gap:12px; padding:0 18px; color:var(--muted); }
+.input .sp { flex:1; }
+.input svg { width:22px; height:22px; fill:currentColor; }
+.demo { position:fixed; right:12px; bottom:70px; font-size:11px; font-weight:600; color:rgba(233,238,243,.55); background:rgba(255,255,255,.06); padding:2px 9px; border-radius:8px; }
