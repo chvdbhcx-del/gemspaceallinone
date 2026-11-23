@@ -17,6 +17,7 @@
     "allow-set-settings",
     "allow-feed-open",
     "allow-feed-clear",
+    "allow-chat-open",
     "allow-check-update",
     "allow-install-update",
     "allow-hotkey"

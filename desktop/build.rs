@@ -17,7 +17,9 @@ fn main() {
         "check_update",
         "install_update",
         "hotkey",
+        "chat_open",
         "acc_notify",
+        "acc_chats",
         "acc_hotkey",
     ])))
     .expect("failed to run tauri-build");

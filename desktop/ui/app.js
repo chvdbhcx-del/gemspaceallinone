@@ -107,9 +107,92 @@ function when(ms) {
 }
 
 // The shared feed: new messages of every account, newest first. Read only: a row opens the chat in its account.
+// The feed overlay has two tabs: new messages (from notifications) and all chats of every account
+// (read from the chat list each page shows, see shared/chats.js).
+let feedTab = (() => { try { return localStorage.getItem('gs-feed-tab') === 'all' ? 'all' : 'new'; } catch (e) { return 'new'; } })();
+const chatSeen = new Set();
+
+function segPill(seg) {
+  const on = seg.querySelector('.on'); const pill = seg.querySelector('.seg-pill');
+  if (on && pill) { pill.style.width = on.offsetWidth + 'px'; pill.style.transform = `translateX(${on.offsetLeft}px)`; }
+}
+
+// Rough time of a chat's last message from the label Gem Space shows ("18:05", "Вчера", "Пн", "23.11.2026"),
+// only to merge the lists of several accounts in order.
+const WEEK = { вс: 0, пн: 1, вт: 2, ср: 3, чт: 4, пт: 5, сб: 6, sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+function chatTime(label) {
+  const t = String(label || '').trim().toLowerCase();
+  const now = new Date();
+  const day = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  let m;
+  if ((m = t.match(/^(\d{1,2}):(\d{2})(?:\s*(am|pm))?$/))) {
+    let h = +m[1] % 12 + (m[3] === 'pm' ? 12 : 0);
+    if (!m[3]) h = +m[1];
+    return day + (h * 60 + +m[2]) * 60000;
+  }
+  if (/^(вчера|yesterday)/.test(t)) return day - 12 * 3600000;
+  const w = WEEK[t.slice(0, 3).replace(/\.$/, '')] ?? WEEK[t.slice(0, 2)];
+  if (w !== undefined) {
+    const back = ((now.getDay() - w + 7) % 7) || 7;
+    return day - back * 86400000 + 12 * 3600000;
+  }
+  if ((m = t.match(/^(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?$/))) {
+    const y = m[3] ? (+m[3] < 100 ? 2000 + +m[3] : +m[3]) : now.getFullYear();
+    return new Date(y, +m[2] - 1, +m[1], 12).getTime();
+  }
+  return 0;
+}
+
+function renderChats() {
+  const box = $('#feed-list');
+  const accounts = new Map(state.accounts.map((a) => [a.id, a]));
+  const lists = state.chats || {};
+  let rows = [];
+  state.accounts.forEach((a) => (lists[a.id] || []).forEach((c, i) => rows.push({ ...c, account: a.id, i, at: chatTime(c.time) })));
+  const present = state.accounts.filter((a) => (lists[a.id] || []).length);
+  if (feedFilter && !present.some((a) => a.id === feedFilter)) feedFilter = null;
+  const unreadOf = (id) => (lists[id] || []).reduce((n, c) => n + (c.unread ? 1 : 0), 0);
+  $('#feed-chips').innerHTML = rows.length ? [`<button class="chip${feedFilter ? '' : ' on'}" data-a="">Все <b>${rows.length}</b></button>`]
+    .concat(present.map((a) => `<button class="chip${feedFilter === a.id ? ' on' : ''}" data-a="${esc(a.id)}"><i style="background:${esc(a.color)}"></i>${esc(a.name)}${unreadOf(a.id) ? ` <b class="u">${unreadOf(a.id)}</b>` : ''}</button>`)).join('') : '';
+  $('#feed-chips').querySelectorAll('.chip').forEach((c) => { c.onclick = () => { feedFilter = c.dataset.a || null; chatSeen.clear(); renderFeed(); }; });
+  $('#feed-clear').hidden = true;
+  $('#feed-lead').textContent = 'Чаты всех аккаунтов одним списком, свежие сверху. Клик откроет чат в его аккаунте.';
+  const missing = state.accounts.filter((a) => !(lists[a.id] || []).length).map((a) => a.name);
+  $('#feed-note').textContent = (missing.length ? `Пока без списка: ${missing.join(', ')}. Чаты аккаунта появятся, когда он загрузится, у спящих показан последний известный список. ` : '')
+    + 'Gemspace только читает список, который показывает сама страница Gem Space, и никуда его не отправляет.';
+  rows = rows.filter((r) => !feedFilter || r.account === feedFilter);
+  rows.sort((a, b) => (b.at - a.at) || (a.account === b.account ? a.i - b.i : 0));
+  if (!rows.length) {
+    box.innerHTML = `<div class="feed-empty"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>
+      <b>Список чатов ещё не загрузился</b><span>Он появится, когда откроются страницы аккаунтов. Если не появляется совсем, значит Gem Space поменял страницу, напишите нам.</span></div>`;
+    return;
+  }
+  box.innerHTML = rows.map((c) => {
+    const a = accounts.get(c.account);
+    const key = c.account + '|' + c.name;
+    const ci = initials(c.name.replace(/[^\p{L}\p{N}\s]/gu, ' ').trim() || c.name);
+    const fresh = !chatSeen.has(key);
+    const ava = c.avatar ? `<span class="ava img"><img src="${esc(c.avatar)}" alt="" referrerpolicy="no-referrer" data-i="${esc(ci)}"></span>`
+      : `<span class="ava" style="background:${esc(a.color)}">${esc(ci)}</span>`;
+    return `<button class="feed-row chat-row${fresh ? ' new' : ''}${c.unread ? ' unread' : ''}" data-a="${esc(c.account)}" data-n="${esc(c.name)}">
+      ${ava}<span class="fr-main"><span class="fr-top"><span class="fr-title">${esc(c.name)}</span><span class="fr-acc"><i style="background:${esc(a.color)}"></i>${esc(a.name)}</span><span class="fr-time">${esc(c.time)}</span></span>
+      <span class="fr-bottom"><span class="fr-body">${esc(c.preview || (c.unread ? 'Новое сообщение' : ''))}</span>${c.unread ? `<span class="cnt">${c.unread > 999 ? '999+' : c.unread}</span>` : ''}</span></span></button>`;
+  }).join('');
+  rows.forEach((c) => chatSeen.add(c.account + '|' + c.name));
+  box.querySelectorAll('.ava.img img').forEach((im) => { im.onerror = () => { const s = im.parentNode; s.classList.remove('img'); s.textContent = im.dataset.i; }; });
+  box.querySelectorAll('.chat-row').forEach((r) => {
+    r.onclick = async () => {
+      try { await invoke('chat_open', { account: r.dataset.a, name: r.dataset.n }); closeOverlay(false); } catch (e) { alertErr(e); }
+    };
+  });
+}
+
 function renderFeed() {
   const box = $('#feed-list');
   if (!box) return;
+  if (feedTab === 'all') { renderChats(); return; }
+  $('#feed-lead').textContent = 'Новые сообщения всех аккаунтов. Клик откроет чат в его аккаунте, ответить можно там.';
+  $('#feed-note').textContent = 'Лента собирается из уведомлений аккаунтов, пока Gemspace запущен. Спящие аккаунты сюда не пишут, важные отметьте «Не усыплять». Сообщения аккаунта уходят из ленты, когда в нём всё прочитано.';
   const accounts = new Map(state.accounts.map((a) => [a.id, a]));
   const items = (state.feed || []).filter((i) => accounts.has(i.account));
   if (feedFilter && !items.some((i) => i.account === feedFilter)) feedFilter = null;
@@ -311,14 +394,29 @@ async function openOverlay(kind, a) {
     };
   } else if (kind === 'feed') {
     $('#ov-title').textContent = 'Лента';
-    body.innerHTML = `<p class="hint lead">Новые сообщения всех аккаунтов. Клик откроет чат в его аккаунте, ответить можно там.</p>
+    body.innerHTML = `<div class="seg feed-tabs" id="feed-tabs"><button type="button" data-t="new">Новые сообщения</button><button type="button" data-t="all">Все чаты</button><span class="seg-pill"></span></div>
+      <p class="hint lead" id="feed-lead"></p>
       <div class="feed-bar"><div id="feed-chips" class="chips"></div><button class="btn small" id="feed-clear">Очистить</button></div>
       <div id="feed-list"></div>
-      <p class="hint">Лента собирается из уведомлений аккаунтов, пока Gemspace запущен. Спящие аккаунты сюда не пишут, важные отметьте «Не усыплять».
-        Сообщения аккаунта уходят из ленты, когда в нём всё прочитано.</p>`;
+      <p class="hint" id="feed-note"></p>`;
     feedSeen.clear();
     (state.feed || []).forEach((i) => feedSeen.add(i.key));
+    chatSeen.clear();
     $('#feed-clear').onclick = () => invoke('feed_clear', { account: feedFilter });
+    const tabs = $('#feed-tabs');
+    tabs.querySelectorAll('button').forEach((b) => {
+      b.classList.toggle('on', b.dataset.t === feedTab);
+      b.onclick = () => {
+        if (feedTab === b.dataset.t) return;
+        feedTab = b.dataset.t;
+        try { localStorage.setItem('gs-feed-tab', feedTab); } catch (e) {}
+        tabs.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
+        segPill(tabs);
+        chatSeen.clear(); feedSeen.clear();
+        renderFeed();
+      };
+    });
+    requestAnimationFrame(() => segPill(tabs));
     renderFeed();
     renderFeedButton();
   } else if (kind === 'update') {
@@ -390,10 +488,7 @@ async function openOverlay(kind, a) {
       <button class="btn ghost wide" id="f-cancel">Отмена</button>
     </div>`;
     const seg = $('#s-scale');
-    const movePill = () => {
-      const on = seg.querySelector('.on'); const pill = seg.querySelector('.seg-pill');
-      if (on) { pill.style.width = on.offsetWidth + 'px'; pill.style.transform = `translateX(${on.offsetLeft}px)`; }
-    };
+    const movePill = () => segPill(seg);
     seg.querySelectorAll('button').forEach((btn) => {
       btn.onclick = () => { seg.querySelectorAll('button').forEach((x) => x.classList.remove('on')); btn.classList.add('on'); movePill(); };
     });

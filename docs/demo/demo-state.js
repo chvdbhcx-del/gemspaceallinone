@@ -28,9 +28,36 @@
         { key: 2, account: 'a2', title: 'Павел', body: 'Фото брака прикрепил, посмотрите', time: m(31) },
       ];
     })(),
+    // what each account's page shows in its chat list ("Все чаты")
+    chats: {
+      a1: [
+        { name: 'Ирина Морозова', time: '12:41', preview: 'Счёт получила, оплачу сегодня 👍', unread: 2, avatar: '' },
+        { name: 'Кафе «Терраса»', time: '12:18', preview: 'Можно перенести доставку на среду?', unread: 1, avatar: '' },
+        { name: 'Лиза', time: 'Вчера', preview: 'Хорошо, договорились', unread: 0, avatar: '' },
+        { name: 'Бухгалтерия', time: 'Пн', preview: '📄 Акт сверки за октябрь.pdf', unread: 0, avatar: '' },
+      ],
+      a2: [
+        { name: 'Денис Карпов', time: '12:42', preview: 'Добрый вечер! Когда будет возврат по заказу 2231?', unread: 3, avatar: '' },
+        { name: 'Светлана', time: '12:36', preview: 'Не приходит код подтверждения, что делать?', unread: 1, avatar: '' },
+        { name: 'Павел', time: '12:11', preview: 'Фото брака прикрепил, посмотрите', unread: 0, avatar: '' },
+        { name: 'Gem Space', time: '09:30', preview: 'Новый вход в аккаунт с устройства Windows', unread: 0, avatar: '' },
+      ],
+      a3: [
+        { name: 'Опт: заявки', time: '12:40', preview: 'Марк: Нужно 40 коробок к пятнице, успеете?', unread: 5, avatar: '' },
+        { name: 'Марк', time: 'Вчера', preview: 'Скинул прайс на декабрь', unread: 0, avatar: '' },
+      ],
+      a4: [
+        { name: 'Ольга', time: '12:33', preview: 'Спасибо, всё пришло! Оставлю отзыв', unread: 0, avatar: '' },
+        { name: 'Сергей Лебедев', time: '11:02', preview: '📷 Фото', unread: 0, avatar: '' },
+      ],
+      a7: [
+        { name: 'Склад, смена 2', time: '12:28', preview: 'Паллеты на утро собраны, ждём машину', unread: 1, avatar: '' },
+      ],
+    },
     version: '0.1.0',
   };
-  if (/[?&]empty/.test(location.search)) { state.accounts = []; state.active = null; state.feed = []; state.total_unread = 0; }
+  if (/[?&]empty/.test(location.search)) { state.accounts = []; state.active = null; state.feed = []; state.chats = {}; state.total_unread = 0; }
+  if (/[?&]chats/.test(location.search)) { try { localStorage.setItem('gs-feed-tab', 'all'); } catch (e) {} }
   var listeners = [];
   window.__TAURI__ = {
     core: {

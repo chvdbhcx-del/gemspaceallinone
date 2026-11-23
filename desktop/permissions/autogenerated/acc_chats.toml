@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-acc-chats"
+description = "Enables the acc_chats command without any pre-configured scope."
+commands.allow = ["acc_chats"]
+
+[[permission]]
+identifier = "deny-acc-chats"
+description = "Denies the acc_chats command without any pre-configured scope."
+commands.deny = ["acc_chats"]
