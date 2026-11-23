@@ -137,6 +137,8 @@ class MainActivity : AppCompatActivity() {
             ?: store.active?.takeIf { store.find(it) != null }
             ?: store.accounts.firstOrNull()?.id
         if (start != null) switchTo(start) else render()
+        // cloud updates: a newer release is offered once (Updater.kt)
+        pages.postDelayed({ if (!isFinishing) Updater.checkQuietly(this) }, 15_000)
         updateKeepAlive()
     }
 
@@ -658,7 +660,7 @@ class MainActivity : AppCompatActivity() {
         val max = EditText(this).apply { inputType = InputType.TYPE_CLASS_NUMBER; setText(s.maxAwake.toString()) }
         box.addView(max)
         box.addView(TextView(this).apply {
-            text = "Спящий аккаунт не присылает уведомлений, пока его не открыть. Открытый и отмеченные «Не усыплять» не засыпают.\n\nGemspace ${BuildConfig.VERSION_NAME}, сборка ${BuildConfig.VERSION_CODE}. Внутри обычная веб-версия Gem Space, Gemspace её не изменяет."
+            text = "Спящий аккаунт не присылает уведомлений, пока его не открыть. Открытый и отмеченные «Не усыплять» не засыпают.\n\nGemspace ${BuildConfig.VERSION_NAME}. Новые версии проверяются сами при запуске. Внутри обычная веб-версия Gem Space, Gemspace её не изменяет."
             textSize = 12f; setPadding(0, dp(8), 0, dp(8))
             setTextColor(ContextCompat.getColor(context, R.color.muted))
         })
@@ -677,6 +679,7 @@ class MainActivity : AppCompatActivity() {
                 render()
             }
             .setNegativeButton("Отмена", null)
+            .setNeutralButton("Обновления") { _, _ -> Updater.checkNow(this) }
             .show()
     }
 

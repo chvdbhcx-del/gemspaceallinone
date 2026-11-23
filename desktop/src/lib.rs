@@ -4,6 +4,7 @@
 
 mod feed;
 mod store;
+mod update;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
@@ -25,7 +26,7 @@ use store::{Account, Settings, Store};
 
 pub const GEM_URL: &str = "https://web.gemspace.com/";
 const MAIN: &str = "main";
-const RAIL: &str = "rail";
+pub(crate) const RAIL: &str = "rail";
 const RAIL_WIDTH: f64 = 76.0;
 const ACC_PREFIX: &str = "acc-";
 
@@ -34,7 +35,7 @@ const ACC_PREFIX: &str = "acc-";
 const INJECT_JS: &str = include_str!("inject.js");
 
 #[derive(Default)]
-struct Live {
+pub(crate) struct Live {
     unread: HashMap<String, u32>,
     /// accounts that got a notification since they were last opened
     attention: HashSet<String>,
@@ -44,11 +45,13 @@ struct Live {
     overlay: bool,
     /// new messages of all accounts, from their notifications
     feed: Feed,
+    /// a newer version found by the updater (update.rs)
+    pub(crate) update: Option<update::UpdateView>,
 }
 
-struct AppState {
+pub(crate) struct AppState {
     store: Mutex<Store>,
-    live: Mutex<Live>,
+    pub(crate) live: Mutex<Live>,
 }
 
 #[derive(Serialize, Clone)]
@@ -67,6 +70,7 @@ struct StateView {
     settings: Settings,
     total_unread: u32,
     feed: Vec<FeedItem>,
+    update: Option<update::UpdateView>,
     version: String,
 }
 
@@ -107,12 +111,13 @@ fn snapshot(app: &AppHandle) -> StateView {
         settings: store.settings.clone(),
         total_unread: total,
         feed: live.feed.items(),
+        update: live.update.clone(),
         version: app.package_info().version.to_string(),
     }
 }
 
 /// Pushes the state to the rail and refreshes the window title and the tray tooltip.
-fn publish(app: &AppHandle) {
+pub(crate) fn publish(app: &AppHandle) {
     let view = snapshot(app);
     let _ = app.emit_to(RAIL, "state", &view);
     let title = if view.total_unread > 0 { format!("({}) Gemspace", view.total_unread) } else { "Gemspace".into() };
@@ -527,6 +532,18 @@ async fn feed_clear(app: AppHandle, account: Option<String>) {
     }
 }
 
+/// Checks for a newer version now (settings); returns it, or None when this one is the newest.
+#[tauri::command]
+async fn check_update(app: AppHandle) -> Result<Option<String>, String> {
+    Ok(update::check(&app).await?.map(|u| u.version))
+}
+
+/// Installs the newer version and restarts.
+#[tauri::command]
+async fn install_update(app: AppHandle) -> Result<(), String> {
+    update::install(&app).await
+}
+
 #[tauri::command]
 async fn set_overlay(app: AppHandle, open: bool) {
     app.state::<AppState>().live.lock().unwrap().overlay = open;
@@ -620,6 +637,7 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)))
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             get_state,
             add_account,
@@ -633,6 +651,8 @@ pub fn run() {
             set_settings,
             feed_open,
             feed_clear,
+            check_update,
+            install_update,
             hotkey,
             acc_notify,
             acc_hotkey
@@ -642,6 +662,7 @@ pub fn run() {
             let store = Store::load(&handle);
             app.manage(AppState { store: Mutex::new(store), live: Mutex::new(Live::default()) });
             store::purge_deleted(&handle);
+            update::start_checks(handle.clone());
 
             let window = WindowBuilder::new(app, MAIN)
                 .title("Gemspace")

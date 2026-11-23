@@ -71,6 +71,13 @@ function renderRail() {
   });
   moveIndicator();
   renderFeedButton();
+  renderUpdateButton();
+}
+
+function renderUpdateButton() {
+  const b = $('#upd');
+  b.hidden = !state.update;
+  if (state.update) b.title = `Доступна версия ${state.update.version}. Нажмите, чтобы обновить`;
 }
 
 function renderFeedButton() {
@@ -274,6 +281,26 @@ async function openOverlay(kind, a) {
     $('#feed-clear').onclick = () => invoke('feed_clear', { account: feedFilter });
     renderFeed();
     renderFeedButton();
+  } else if (kind === 'update') {
+    const u = state.update;
+    $('#ov-title').textContent = 'Обновление';
+    body.innerHTML = u ? `<p>Доступна новая версия Gemspace <b>${esc(u.version)}</b>, у вас ${esc(state.version || '')}.</p>
+      ${u.notes ? `<div class="card notes">${esc(u.notes)}</div>` : ''}
+      <p class="hint">Gemspace скачает обновление, проверит его подпись, установит и перезапустится. Аккаунты и входы сохранятся.</p>
+      <div class="progress" hidden><span></span></div>
+      <div class="row"><button class="btn primary" id="f-ok">Обновить сейчас</button><button class="btn" id="f-cancel">Позже</button></div><div class="err"></div>`
+      : `<p>У вас последняя версия Gemspace ${esc(state.version || '')}.</p><div class="row"><button class="btn" id="f-cancel">Закрыть</button></div>`;
+    if (u) {
+      $('#f-ok').onclick = async () => {
+        $('#f-ok').disabled = true; $('#f-cancel').disabled = true;
+        $('#f-ok').textContent = 'Скачивается…';
+        $('.progress').hidden = false;
+        try { await invoke('install_update'); } catch (e) {
+          $('#f-ok').disabled = false; $('#f-cancel').disabled = false; $('#f-ok').textContent = 'Повторить';
+          alertErr(e);
+        }
+      };
+    }
   } else if (kind === 'settings') {
     const s = state.settings;
     $('#ov-title').textContent = 'Настройки';
@@ -296,7 +323,10 @@ async function openOverlay(kind, a) {
       <h2>Клавиши</h2>
       <div class="card"><p><kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd> аккаунт по номеру, <kbd>Ctrl</kbd>+<kbd>Tab</kbd> и <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Tab</kbd> следующий и предыдущий, <kbd>Ctrl</kbd>+колесо масштаб.</p>
         <p>Правый клик по аккаунту: изменить, перезагрузить, усыпить, порядок, удалить.</p></div>
-      <p class="hint">Gemspace ${esc(state.version || '')}. Внутри открывается обычная веб-версия Gem Space (web.gemspace.com), Gemspace её не изменяет.</p>
+      <h2>Обновления</h2>
+      <div class="card"><p>Gemspace ${esc(state.version || '')}. Новые версии проверяются сами, раз в несколько часов, и ставятся по кнопке.</p>
+        <p><button class="btn small" id="s-check">Проверить сейчас</button> <span class="hint" id="s-check-res"></span></p></div>
+      <p class="hint">Внутри открывается обычная веб-версия Gem Space (web.gemspace.com), Gemspace её не изменяет.</p>
       <div class="row"><button class="btn primary" id="f-ok">Сохранить</button><button class="btn" id="f-cancel">Отмена</button></div>`;
     $('#f-ok').onclick = async () => {
       const settings = {
@@ -308,6 +338,15 @@ async function openOverlay(kind, a) {
       };
       await invoke('set_settings', { settings });
       closeOverlay();
+    };
+    $('#s-check').onclick = async () => {
+      const res = $('#s-check-res');
+      res.textContent = 'Проверяю…';
+      try {
+        const v = await invoke('check_update');
+        res.textContent = v ? `Есть версия ${v}` : 'Это последняя версия';
+        if (v) openOverlay('update');
+      } catch (e) { res.textContent = 'Не удалось проверить: ' + (typeof e === 'string' ? e : (e && e.message) || e); }
     };
   }
   const cancel = $('#f-cancel');
@@ -329,6 +368,7 @@ async function closeOverlay(restore = true) {
 $('#ov-close').onclick = () => closeOverlay();
 $('#add').onclick = () => openOverlay('add');
 $('#gear').onclick = () => openOverlay('settings');
+$('#upd').onclick = () => openOverlay('update');
 $('#feed').onclick = () => (overlayKind === 'feed' ? closeOverlay() : openOverlay('feed'));
 
 window.addEventListener('keydown', (e) => {
@@ -350,4 +390,11 @@ function apply(s) {
 }
 
 listen('state', (e) => apply(e.payload));
+listen('update-progress', (e) => {
+  const bar = $('.progress span');
+  if (!bar) return;
+  const { done, total } = e.payload;
+  bar.style.width = total ? `${Math.min(100, (done / total) * 100).toFixed(1)}%` : '50%';
+  if (total && done >= total) $('#f-ok').textContent = 'Устанавливается…';
+});
 invoke('get_state').then(apply);
