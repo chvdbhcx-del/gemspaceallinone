@@ -211,7 +211,7 @@ class MainActivity : AppCompatActivity() {
                 elevation = dp(10).toFloat()
             }, LinearLayout.LayoutParams(dp(96), dp(96)).apply { bottomMargin = dp(14) })
             addView(TextView(context).apply {
-                text = "Gemspace"; textSize = 32f; typeface = fontHeavy; gravity = Gravity.CENTER; setTextColor(fg)
+                text = "Hovi Space"; textSize = 32f; typeface = fontHeavy; gravity = Gravity.CENTER; setTextColor(fg)
             })
             addView(TextView(context).apply {
                 text = "Все ваши аккаунты Gem Space в одном приложении"
@@ -438,8 +438,8 @@ class MainActivity : AppCompatActivity() {
             })
         }
         list.addView(TextView(this).apply {
-            text = if (tab == "all") "Чаты всех аккаунтов, свежие сверху. Gemspace только читает список, который показывает страница Gem Space, и никуда его не отправляет. У спящих аккаунтов показан последний известный список."
-            else "Лента собирается из уведомлений аккаунтов, пока Gemspace работает. Спящие аккаунты сюда не пишут. Ответить можно в самом чате."
+            text = if (tab == "all") "Чаты всех аккаунтов, свежие сверху. Hovi Space только читает список, который показывает страница Gem Space, и никуда его не отправляет. У спящих аккаунтов показан последний известный список."
+            else "Лента собирается из уведомлений аккаунтов, пока Hovi Space работает. Спящие аккаунты сюда не пишут. Ответить можно в самом чате."
             textSize = 12f; setTextColor(muted); setPadding(dp(8), dp(6), dp(8), 0)
         })
         // rows slide in one after another, like the welcome screen
@@ -719,7 +719,7 @@ class MainActivity : AppCompatActivity() {
         if (a == null && !multiProfile && store.accounts.isNotEmpty()) {
             AlertDialog.Builder(this)
                 .setTitle("Нужно обновить WebView")
-                .setMessage("Второй аккаунт требует Android System WebView версии 128 или новее (отдельные профили). Обновите его в Google Play и откройте Gemspace снова.")
+                .setMessage("Второй аккаунт требует Android System WebView версии 128 или новее (отдельные профили). Обновите его в Google Play и откройте Hovi Space снова.")
                 .setPositiveButton("Понятно", null).show()
             return
         }
@@ -803,7 +803,7 @@ class MainActivity : AppCompatActivity() {
     private fun confirmRemove(a: Account) {
         val sheet = Sheet()
         sheet.hero(sheet.avatar(a.color, Store.initials(a.name)), "Удалить «${a.name}»?",
-            "Аккаунт исчезнет из Gemspace, его данные на телефоне будут стёрты. Сам аккаунт Gem Space останется, войти в него можно снова.")
+            "Аккаунт исчезнет из Hovi Space, его данные на телефоне будут стёрты. Сам аккаунт Gem Space останется, войти в него можно снова.")
         sheet.primary("Удалить", danger = true) { remove(a); sheet.dismiss() }
         sheet.ghost("Отмена") { sheet.dismiss() }
         sheet.show()
@@ -824,7 +824,7 @@ class MainActivity : AppCompatActivity() {
                     .setInterpolator(android.view.animation.DecelerateInterpolator(2f)).start()
             }, FrameLayout.LayoutParams(dp(34), dp(34), Gravity.CENTER))
         }
-        sheet.hero(gearBox, "Настройки", "Gemspace ${BuildConfig.VERSION_NAME}. Внутри обычная веб-версия Gem Space, Gemspace её не изменяет.")
+        sheet.hero(gearBox, "Настройки", "Hovi Space ${BuildConfig.VERSION_NAME}. Внутри обычная веб-версия Gem Space, Hovi Space её не изменяет.")
         sheet.section("Уведомления")
         val c1 = sheet.card()
         val notif = sheet.toggle(c1, R.drawable.ic_bell, "Уведомления", "О новых сообщениях во всех аккаунтах", s.notifications)

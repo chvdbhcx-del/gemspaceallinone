@@ -1,8 +1,7 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
-    <path android:fillColor="#F2FFFFFF" android:pathData="M54,79L33,52.7L41.1,40.6H66.9L75,52.7Z" />
-    <path android:fillColor="#E6DFE9FF" android:pathData="M33,52.7H75L54,79Z" />
-    <path android:fillColor="#FFFFFFFF" android:pathData="M47.1,52.7L54,40.6L60.9,52.7L54,79Z" />
-    <path android:fillColor="#593A6FD8" android:pathData="M41.1,40.6L47.1,52.7H33Z" />
-    <path android:fillColor="#593A6FD8" android:pathData="M66.9,40.6L60.9,52.7H75Z" />
+    <!-- Hovi Space: hexagon and crystal, drawn from docs/icon/hovi-space.svg -->
+    <path android:fillColor="#29FFFFFF" android:strokeColor="#FFFFFFFF" android:strokeWidth="4.54" android:strokeLineJoin="round" android:pathData="M54.0,23.0L80.85,38.5L80.85,69.5L54.0,85.0L27.15,69.5L27.15,38.5Z" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M42.2,39.86L65.8,39.86L75.62,50.67L54.0,75.25L32.38,50.67Z" />
+    <path android:strokeColor="#47E8283A" android:strokeWidth="1.28" android:strokeLineJoin="round" android:pathData="M32.38,50.67L75.62,50.67 M42.2,39.86L47.12,50.67L54.0,75.25L60.88,50.67L65.8,39.86 M54.0,39.86L47.12,50.67 M54.0,39.86L60.88,50.67" />
 </vector>

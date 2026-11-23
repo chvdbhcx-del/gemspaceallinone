@@ -1,4 +1,4 @@
-//! Gemspace desktop: one window, an account rail on the left and one isolated webview per
+//! Hovi Space desktop: one window, an account rail on the left and one isolated webview per
 //! Gem Space account (its own WebView2 data folder, so its own cookies and storage, and its own proxy).
 //! The Gem Space web app itself is loaded unmodified from https://web.gemspace.com/.
 
@@ -53,7 +53,7 @@ fn apply_scale(app: &AppHandle) {
 const ACC_PREFIX: &str = "acc-";
 
 /// Injected into every account webview before the page's own scripts. It reroutes the page's web
-/// notifications to Gemspace (so they carry the account name), forwards account hotkeys and reads the
+/// notifications to Hovi Space (so they carry the account name), forwards account hotkeys and reads the
 /// chat list the page shows for "Все чаты" (shared/chats.js). It never types or sends anything.
 const INJECT_JS: &str = concat!(include_str!("inject.js"), "\n", include_str!("../../shared/chats.js"));
 
@@ -174,15 +174,15 @@ fn snapshot(app: &AppHandle) -> StateView {
 pub(crate) fn publish(app: &AppHandle) {
     let view = snapshot(app);
     let _ = app.emit_to(RAIL, "state", &view);
-    let title = if view.total_unread > 0 { format!("({}) Gemspace", view.total_unread) } else { "Gemspace".into() };
+    let title = if view.total_unread > 0 { format!("({}) Hovi Space", view.total_unread) } else { "Hovi Space".into() };
     if let Some(w) = main_window(app) {
         let _ = w.set_title(&title);
     }
     if let Some(tray) = app.tray_by_id("tray") {
         let tip = if view.total_unread > 0 {
-            format!("Gemspace: {} непрочитанных", view.total_unread)
+            format!("Hovi Space: {} непрочитанных", view.total_unread)
         } else {
-            "Gemspace".into()
+            "Hovi Space".into()
         };
         let _ = tray.set_tooltip(Some(tip));
     }
@@ -763,7 +763,7 @@ pub fn run() {
             update::start_checks(handle.clone());
 
             let window = WindowBuilder::new(app, MAIN)
-                .title("Gemspace")
+                .title("Hovi Space")
                 .inner_size(1280.0, 820.0)
                 .min_inner_size(760.0, 480.0)
                 .build()?;
@@ -781,10 +781,10 @@ pub fn run() {
                 let _ = rail.set_zoom(z);
             }
 
-            let show = MenuItem::with_id(app, "show", "Открыть Gemspace", true, None::<&str>)?;
+            let show = MenuItem::with_id(app, "show", "Открыть Hovi Space", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Выйти", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &quit])?;
-            let mut tray = TrayIconBuilder::with_id("tray").tooltip("Gemspace").menu(&menu).show_menu_on_left_click(false);
+            let mut tray = TrayIconBuilder::with_id("tray").tooltip("Hovi Space").menu(&menu).show_menu_on_left_click(false);
             if let Some(icon) = app.default_window_icon().cloned() {
                 tray = tray.icon(icon);
             }
@@ -853,7 +853,7 @@ pub fn run() {
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("error while running Gemspace");
+        .expect("error while running Hovi Space");
 }
 
 #[cfg(test)]

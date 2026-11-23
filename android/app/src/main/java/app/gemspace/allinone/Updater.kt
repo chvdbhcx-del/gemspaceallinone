@@ -20,7 +20,7 @@ import java.net.URL
  * Cloud updates on Android: reads the newest GitHub release of chvdbhcx-del/gemspaceallinone, and when
  * its build number is above this app's versionCode offers it. The APK is downloaded with the system
  * DownloadManager and handed to the system installer. Android installs it over this app only when it
- * is signed with the same key (gemspace.jks), so a foreign APK cannot replace Gemspace.
+ * is signed with the same key (gemspace.jks), so a foreign APK cannot replace Hovi Space.
  */
 object Updater {
     private const val LATEST = "https://api.github.com/repos/chvdbhcx-del/gemspaceallinone/releases/latest"
@@ -98,16 +98,16 @@ object Updater {
     fun offer(activity: Activity, r: Release) {
         AlertDialog.Builder(activity)
             .setTitle("Доступна версия ${r.version}")
-            .setMessage("У вас ${BuildConfig.VERSION_NAME}. Gemspace скачает новую версию, и Android предложит её установить. Аккаунты и входы сохранятся.")
+            .setMessage("У вас ${BuildConfig.VERSION_NAME}. Hovi Space скачает новую версию, и Android предложит её установить. Аккаунты и входы сохранятся.")
             .setPositiveButton("Обновить") { _, _ -> download(activity, r) }
             .setNegativeButton("Позже", null)
             .show()
     }
 
     private fun download(activity: Activity, r: Release) {
-        // Android 8+: the user allows Gemspace to install apps once
+        // Android 8+: the user allows Hovi Space to install apps once
         if (!activity.packageManager.canRequestPackageInstalls()) {
-            Toast.makeText(activity, "Разрешите Gemspace устанавливать приложения, вернитесь и нажмите «Обновить» ещё раз", Toast.LENGTH_LONG).show()
+            Toast.makeText(activity, "Разрешите Hovi Space устанавливать приложения, вернитесь и нажмите «Обновить» ещё раз", Toast.LENGTH_LONG).show()
             activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${activity.packageName}")))
             return
         }
@@ -116,13 +116,13 @@ object Updater {
         activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)?.resolve(name)?.delete()
         val id = dm.enqueue(
             DownloadManager.Request(Uri.parse(r.apk))
-                .setTitle("Gemspace ${r.version}")
-                .setDescription("Обновление Gemspace")
+                .setTitle("Hovi Space ${r.version}")
+                .setDescription("Обновление Hovi Space")
                 .setMimeType("application/vnd.android.package-archive")
                 .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
                 .setDestinationInExternalFilesDir(activity, Environment.DIRECTORY_DOWNLOADS, name)
         )
-        Toast.makeText(activity, "Скачиваю Gemspace ${r.version}…", Toast.LENGTH_SHORT).show()
+        Toast.makeText(activity, "Скачиваю Hovi Space ${r.version}…", Toast.LENGTH_SHORT).show()
         val app = activity.applicationContext
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context, intent: Intent) {
@@ -139,7 +139,7 @@ object Updater {
                 try {
                     app.startActivity(install)
                 } catch (e: Exception) {
-                    Toast.makeText(app, "Откройте скачанный файл Gemspace из уведомления, чтобы установить", Toast.LENGTH_LONG).show()
+                    Toast.makeText(app, "Откройте скачанный файл Hovi Space из уведомления, чтобы установить", Toast.LENGTH_LONG).show()
                 }
             }
         }

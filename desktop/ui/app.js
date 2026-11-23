@@ -1,4 +1,4 @@
-// Gemspace rail: account tiles, account editor and settings. Talks to the Rust side through Tauri commands.
+// Hovi Space rail: account tiles, account editor and settings. Talks to the Rust side through Tauri commands.
 'use strict';
 
 const { invoke } = window.__TAURI__.core;
@@ -159,7 +159,7 @@ function renderChats() {
   $('#feed-lead').textContent = 'Чаты всех аккаунтов одним списком, свежие сверху. Клик откроет чат в его аккаунте.';
   const missing = state.accounts.filter((a) => !(lists[a.id] || []).length).map((a) => a.name);
   $('#feed-note').textContent = (missing.length ? `Пока без списка: ${missing.join(', ')}. Чаты аккаунта появятся, когда он загрузится, у спящих показан последний известный список. ` : '')
-    + 'Gemspace только читает список, который показывает сама страница Gem Space, и никуда его не отправляет.';
+    + 'Hovi Space только читает список, который показывает сама страница Gem Space, и никуда его не отправляет.';
   rows = rows.filter((r) => !feedFilter || r.account === feedFilter);
   rows.sort((a, b) => (b.at - a.at) || (a.account === b.account ? a.i - b.i : 0));
   if (!rows.length) {
@@ -192,7 +192,7 @@ function renderFeed() {
   if (!box) return;
   if (feedTab === 'all') { renderChats(); return; }
   $('#feed-lead').textContent = 'Новые сообщения всех аккаунтов. Клик откроет чат в его аккаунте, ответить можно там.';
-  $('#feed-note').textContent = 'Лента собирается из уведомлений аккаунтов, пока Gemspace запущен. Спящие аккаунты сюда не пишут, важные отметьте «Не усыплять». Сообщения аккаунта уходят из ленты, когда в нём всё прочитано.';
+  $('#feed-note').textContent = 'Лента собирается из уведомлений аккаунтов, пока Hovi Space запущен. Спящие аккаунты сюда не пишут, важные отметьте «Не усыплять». Сообщения аккаунта уходят из ленты, когда в нём всё прочитано.';
   const accounts = new Map(state.accounts.map((a) => [a.id, a]));
   const items = (state.feed || []).filter((i) => accounts.has(i.account));
   if (feedFilter && !items.some((i) => i.account === feedFilter)) feedFilter = null;
@@ -341,7 +341,7 @@ async function openOverlay(kind, a) {
     const f = (icon, title, text) => `<div class="feature"><span class="f-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${icon}"/></svg></span><b>${title}</b><span>${text}</span></div>`;
     body.innerHTML = `<div class="welcome">
       <div class="w-logo"><img src="logo.png" alt=""></div>
-      <h1>Gemspace</h1>
+      <h1>Hovi Space</h1>
       <p class="w-sub">Все ваши аккаунты Gem Space в одном окне</p>
       <div class="features">
         ${f('M12 1 3 5v6c0 5.5 3.8 10.7 9 12 5.2-1.3 9-6.5 9-12V5zm0 6a3 3 0 1 1 0 6 3 3 0 0 1 0-6zm0 14c-2.5-.8-4.6-2.7-5.6-5.1C7.8 14.6 10 14 12 14s4.2.6 5.6 1.9c-1 2.4-3.1 4.3-5.6 5.1z', 'Отдельный вход', 'У каждого аккаунта свои данные, как в разных браузерах')}
@@ -350,7 +350,7 @@ async function openOverlay(kind, a) {
         ${f('M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm6.9 6h-3a15.7 15.7 0 0 0-1.4-3.6A8 8 0 0 1 18.9 8zM12 4c.8 1.2 1.5 2.5 1.9 4h-3.8c.4-1.5 1.1-2.8 1.9-4zM4.3 14a8.2 8.2 0 0 1 0-4h3.4a16.5 16.5 0 0 0 0 4zm.8 2h3a15.7 15.7 0 0 0 1.4 3.6A8 8 0 0 1 5.1 16zm3-8h-3a8 8 0 0 1 4.4-3.6C8 5.6 7.6 6.8 8.1 8zM12 20c-.8-1.2-1.5-2.5-1.9-4h3.8c-.4 1.5-1.1 2.8-1.9 4zm2.3-6H9.7a14.7 14.7 0 0 1 0-4h4.6a14.7 14.7 0 0 1 0 4zm.3 5.6c.6-1.1 1.1-2.3 1.4-3.6h3a8 8 0 0 1-4.4 3.6zm1.7-5.6a16.5 16.5 0 0 0 0-4h3.4a8.2 8.2 0 0 1 0 4z', 'Свой прокси', 'SOCKS5 или HTTP отдельно для каждого аккаунта')}
       </div>
       <button class="btn primary big" id="w-add">Добавить первый аккаунт</button>
-      <p class="w-note">Откроется обычная веб-версия Gem Space, вход по номеру телефона, как всегда.<br>Gemspace ничего не отправляет на свои серверы.</p>
+      <p class="w-note">Откроется обычная веб-версия Gem Space, вход по номеру телефона, как всегда.<br>Hovi Space ничего не отправляет на свои серверы.</p>
     </div>`;
     $('#w-add').onclick = () => openOverlay('add');
   } else if (kind === 'add') {
@@ -372,7 +372,7 @@ async function openOverlay(kind, a) {
       try {
         const restart = await invoke('update_account', { id: a.id, ...v });
         if (restart) {
-          $('.err').textContent = 'Новый прокси заработает после перезапуска Gemspace (Выйти в трее и открыть снова).';
+          $('.err').textContent = 'Новый прокси заработает после перезапуска Hovi Space (Выйти в трее и открыть снова).';
           $('#f-ok').textContent = 'Готово';
           $('#f-ok').onclick = () => closeOverlay();
           return;
@@ -385,7 +385,7 @@ async function openOverlay(kind, a) {
     body.innerHTML = `<div class="acc-form">
       <div class="af-hero"><span class="af-ava" style="background:${esc(a.color)}">${esc(initials(a.name))}</span>
         <h1>Удалить «${esc(a.name)}»?</h1>
-        <p>Аккаунт исчезнет из Gemspace, а его данные на этом компьютере будут стёрты. Сам аккаунт Gem Space останется, войти в него можно снова.</p></div>
+        <p>Аккаунт исчезнет из Hovi Space, а его данные на этом компьютере будут стёрты. Сам аккаунт Gem Space останется, войти в него можно снова.</p></div>
       <div class="err"></div>
       <button class="btn danger-fill big wide" id="f-ok">Удалить</button>
       <button class="btn ghost wide" id="f-cancel">Отмена</button></div>`;
@@ -422,12 +422,12 @@ async function openOverlay(kind, a) {
   } else if (kind === 'update') {
     const u = state.update;
     $('#ov-title').textContent = 'Обновление';
-    body.innerHTML = u ? `<p>Доступна новая версия Gemspace <b>${esc(u.version)}</b>, у вас ${esc(state.version || '')}.</p>
+    body.innerHTML = u ? `<p>Доступна новая версия Hovi Space <b>${esc(u.version)}</b>, у вас ${esc(state.version || '')}.</p>
       ${u.notes ? `<div class="card notes">${esc(u.notes)}</div>` : ''}
-      <p class="hint">Gemspace скачает обновление, проверит его подпись, установит и перезапустится. Аккаунты и входы сохранятся.</p>
+      <p class="hint">Hovi Space скачает обновление, проверит его подпись, установит и перезапустится. Аккаунты и входы сохранятся.</p>
       <div class="progress" hidden><span></span></div>
       <div class="row"><button class="btn primary" id="f-ok">Обновить сейчас</button><button class="btn" id="f-cancel">Позже</button></div><div class="err"></div>`
-      : `<p>У вас последняя версия Gemspace ${esc(state.version || '')}.</p><div class="row"><button class="btn" id="f-cancel">Закрыть</button></div>`;
+      : `<p>У вас последняя версия Hovi Space ${esc(state.version || '')}.</p><div class="row"><button class="btn" id="f-cancel">Закрыть</button></div>`;
     if (u) {
       $('#f-ok').onclick = async () => {
         $('#f-ok').disabled = true; $('#f-cancel').disabled = true;
@@ -449,7 +449,7 @@ async function openOverlay(kind, a) {
       <div class="af-hero">
         <span class="af-ava set-ava">${icon(GEAR_PATH)}</span>
         <h1>Настройки</h1>
-        <p>Gemspace ${esc(state.version || '')}. Внутри обычная веб-версия Gem Space, Gemspace её не изменяет.</p>
+        <p>Hovi Space ${esc(state.version || '')}. Внутри обычная веб-версия Gem Space, Hovi Space её не изменяет.</p>
       </div>
       <div class="set-label">Уведомления</div>
       <div class="af-card set-card">

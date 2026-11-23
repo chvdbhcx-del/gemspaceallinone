@@ -1,5 +1,5 @@
-// Gemspace: runs in every account WebView before the Gem Space page. It does not read or change
-// the page: it only reroutes web notifications to Gemspace (so they carry the account name, fill
+// Hovi Space: runs in every account WebView before the Gem Space page. It does not read or change
+// the page: it only reroutes web notifications to Hovi Space (so they carry the account name, fill
 // the shared feed and arrive as Android notifications, which a WebView cannot show by itself).
 (function () {
   if (window.__gemspace) return;
@@ -15,7 +15,7 @@
     } catch (e) {}
   }
 
-  // The page's recent notifications by id, so a row of Gemspace's feed can "click" one: that runs the
+  // The page's recent notifications by id, so a row of Hovi Space's feed can "click" one: that runs the
   // page's own click handler, which in Gem Space opens the chat. Nothing else is kept.
   var recent = {};
   var order = [];
@@ -80,7 +80,7 @@
       return query(d);
     };
   }
-  // the chat list read by chats.js goes to Gemspace's "Все чаты"
+  // the chat list read by chats.js goes to Hovi Space's "Все чаты"
   window.__gemspaceSendChats = function (chats) {
     try { if (window.GemspaceBridge) GemspaceBridge.postMessage(JSON.stringify({ t: 'chats', chats: chats })); } catch (e) {}
   };
