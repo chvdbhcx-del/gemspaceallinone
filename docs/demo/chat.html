@@ -62,6 +62,8 @@ const doodle = (() => {
 document.documentElement.style.setProperty('--doodle', doodle);
 const phone = location.search.includes('phone');
 if (phone) document.body.classList.add('phone');
+// ?focus: «Все чаты» is open next to the page, the page shows only the open chat (shared/chats.js __gemspaceFocus)
+if (location.search.includes('focus')) document.body.classList.add('focus');
 const list = CHATS.map(([n, c, t, p, u, on, mute]) => `<div class="item${on ? ' on' : ''}"><div class="av" style="background:${c}">${ini(n)}</div>
   <div class="meta"><div class="row"><span class="name">${n}</span><span class="time">${t}</span></div>
   <div class="row"><span class="prev">${p}</span>${u ? `<span class="cnt${mute ? ' mute' : ''}">${u}</span>` : ''}</div></div></div>`).join('');

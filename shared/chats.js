@@ -84,6 +84,20 @@
   if (document.body) start();
   else document.addEventListener('DOMContentLoaded', start);
 
+  // "Все чаты" is open next to the page: the page's own left part (its navigation and chat list) is hidden in
+  // this window only, so the open chat takes the whole width, as in Hivogram. Nothing changes in Gem Space itself.
+  // Only when that part has a sibling, so a layout where the chat sits inside it is never hidden.
+  window.__gemspaceFocus = function (on) {
+    var root = document.documentElement;
+    if (!document.getElementById('hovi-focus')) {
+      var st = document.createElement('style');
+      st.id = 'hovi-focus';
+      st.textContent = 'html.hovi-focus #gem > * > *:has([data-test="groups-navigation"]):not(:only-child) { display: none !important; }';
+      (document.head || root).appendChild(st);
+    }
+    root.classList.toggle('hovi-focus', !!on);
+  };
+
   // Opens a chat by name: clicks its row, the same as the user would. If the row is scrolled out of
   // the virtualized list, scrolls the list to the top first, where recent chats are.
   window.__gemspaceOpenChat = function (name) {

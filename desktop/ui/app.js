@@ -182,7 +182,7 @@ function renderChats() {
   });
   $('#feed-clear').hidden = true;
   const missing = state.accounts.filter((a) => !(lists[a.id] || []).length).map((a) => a.name);
-  $('#feed-note').textContent = (missing.length ? `Пока без списка: ${missing.join(', ')}. Чаты аккаунта появятся, когда он загрузится. ` : '')
+  $('#feed-note').textContent = (missing.length ? `Пока без списка: ${missing.join(', ').replace(/\.$/, '')}. Чаты аккаунта появятся, когда он загрузится. ` : '')
     + 'Hovi Space только читает список, который показывает страница Gem Space, и никуда его не отправляет.';
   const q = chatQuery.trim().toLowerCase();
   rows = rows.filter((r) => (!feedFilter || r.account === feedFilter) && (!chatUnreadOnly || r.unread) && (!q || r.name.toLowerCase().includes(q)));
@@ -363,8 +363,7 @@ async function openOverlay(kind, a) {
   await invoke('set_overlay', { open: true });
   $('#overlay').hidden = false;
   $('#overlay').classList.toggle('welcome-mode', kind === 'welcome');
-  $('#overlay').classList.toggle('form-mode', kind === 'add' || kind === 'edit' || kind === 'remove');
-  $('#overlay').classList.toggle('set-mode', kind === 'settings');
+  $('#overlay').classList.toggle('form-mode', kind === 'add' || kind === 'edit' || kind === 'remove' || kind === 'settings');
   const body = $('#ov-body');
   $('#ov-close').hidden = kind === 'welcome';
   if (kind === 'welcome') {
@@ -444,125 +443,92 @@ async function openOverlay(kind, a) {
       };
     }
   } else if (kind === 'settings') {
+    const s = state.settings;
     $('#ov-title').textContent = '';
-    $('#ov-close').hidden = true;
-    renderSettings(a || '');
+    const row = (ic, id, on, title, text) => `<label class="set-row"><span class="af-ic">${icon(ic)}</span><span class="af-txt"><b>${title}</b>${text ? `<small>${text}</small>` : ''}</span>
+      <input type="checkbox" id="${id}" ${on ? 'checked' : ''}><span class="switch"></span></label>`;
+    const key = (k, text) => `<div class="key-row"><span class="keys">${k.map((x) => `<kbd>${x}</kbd>`).join('<i>+</i>')}</span><span>${text}</span></div>`;
+    body.innerHTML = `<div class="acc-form settings-form">
+      <div class="af-hero">
+        <span class="af-ava set-ava">${icon(GEAR_PATH)}</span>
+        <h1>Настройки</h1>
+        <p>Hovi Space ${esc(state.version || '')}. Внутри обычная веб-версия Gem Space, Hovi Space её не изменяет.</p>
+      </div>
+      <div class="set-label">Уведомления</div>
+      <div class="af-card set-card">
+        ${row(BELL_PATH, 's-notif', s.notifications, 'Уведомления', 'О новых сообщениях во всех аккаунтах')}
+        ${row(TEXT_PATH, 's-preview', s.notify_preview, 'Текст сообщения', 'Показывать в уведомлении, а не только имя')}
+      </div>
+      <div class="set-label">Память</div>
+      <div class="af-card set-card">
+        ${row(MOON_PATH, 's-sleep', s.sleep_enabled, 'Спящий режим', 'Давно не открытые аккаунты выгружаются и не присылают уведомлений')}
+        <div class="set-row" id="s-max-row"><span class="af-ic">${icon(LAYERS_PATH)}</span><span class="af-txt"><b>Загружено одновременно</b><small>Открытый и «Не усыплять» не считаются</small></span>
+          <span class="stepper"><button type="button" data-d="-1" aria-label="Меньше">−</button><input type="number" id="s-max" min="1" max="60" value="${s.max_awake}"><button type="button" data-d="1" aria-label="Больше">+</button></span></div>
+      </div>
+      <div class="set-label">Окно</div>
+      <div class="af-card set-card">
+        ${row(TRAY_PATH, 's-tray', s.close_to_tray, 'Сворачивать в трей', 'Крестик прячет окно, уведомления продолжают приходить')}
+        <div class="set-row set-col"><div class="set-head"><span class="af-ic">${icon(SIZE_PATH)}</span><span class="af-txt"><b>Размер интерфейса</b><small>Панель аккаунтов и страницы Gem Space</small></span></div>
+          <div class="seg" id="s-scale">${SCALES.map((v) => `<button type="button" data-v="${v}" class="${v === (s.ui_scale || 100) ? 'on' : ''}">${v}%</button>`).join('')}<span class="seg-pill"></span></div></div>
+      </div>
+      <div class="set-label">Обновления</div>
+      <div class="af-card set-card">
+        <div class="set-row"><span class="af-ic">${icon(REFRESH_PATH)}</span><span class="af-txt"><b>Версия ${esc(state.version || '')}</b><small id="s-check-res">Проверяются сами раз в несколько часов</small></span>
+          <button class="btn small" id="s-check">Проверить</button></div>
+      </div>
+      <details class="af-card af-more">
+        <summary><span class="af-ic">${icon(KEYS_PATH)}</span><span class="af-txt"><b>Горячие клавиши</b><small>Переключение аккаунтов с клавиатуры</small></span><span class="af-chev"></span></summary>
+        <div class="keys-list">
+          ${key(['Ctrl', '1…9'], 'Аккаунт по номеру')}
+          ${key(['Ctrl', 'Tab'], 'Следующий аккаунт')}
+          ${key(['Ctrl', 'Shift', 'Tab'], 'Предыдущий аккаунт')}
+          ${key(['Ctrl', 'колесо'], 'Масштаб')}
+          <div class="key-row"><span class="keys"><kbd>Правый клик</kbd></span><span>Изменить, усыпить, порядок, удалить</span></div>
+        </div>
+      </details>
+      <div class="err"></div>
+      <button class="btn primary big wide" id="f-ok">Сохранить</button>
+      <button class="btn ghost wide" id="f-cancel">Отмена</button>
+    </div>`;
+    const seg = $('#s-scale');
+    const movePill = () => segPill(seg);
+    seg.querySelectorAll('button').forEach((btn) => {
+      btn.onclick = () => { seg.querySelectorAll('button').forEach((x) => x.classList.remove('on')); btn.classList.add('on'); movePill(); };
+    });
+    requestAnimationFrame(movePill);
+    const max = $('#s-max');
+    const syncMax = () => $('#s-max-row').classList.toggle('off', !$('#s-sleep').checked);
+    $('#s-sleep').addEventListener('change', syncMax); syncMax();
+    body.querySelectorAll('.stepper button').forEach((btn) => {
+      btn.onclick = () => {
+        max.value = Math.max(1, Math.min(60, (parseInt(max.value, 10) || 8) + Number(btn.dataset.d)));
+        max.classList.remove('bump'); void max.offsetWidth; max.classList.add('bump');
+      };
+    });
+    $('#f-ok').onclick = async () => {
+      const settings = {
+        notifications: $('#s-notif').checked,
+        notify_preview: $('#s-preview').checked,
+        sleep_enabled: $('#s-sleep').checked,
+        max_awake: Math.max(1, Math.min(60, parseInt($('#s-max').value, 10) || 8)),
+        close_to_tray: $('#s-tray').checked,
+        ui_scale: Number(($('#s-scale .on') || {}).dataset?.v) || 100,
+      };
+      await invoke('set_settings', { settings });
+      closeOverlay();
+    };
+    $('#s-check').onclick = async () => {
+      const res = $('#s-check-res');
+      res.textContent = 'Проверяю…';
+      try {
+        const v = await invoke('check_update');
+        res.textContent = v ? `Есть версия ${v}` : 'Это последняя версия';
+        if (v) openOverlay('update');
+      } catch (e) { res.textContent = 'Не удалось проверить: ' + (typeof e === 'string' ? e : (e && e.message) || e); }
+    };
   }
   const cancel = $('#f-cancel');
   if (cancel) cancel.onclick = () => closeOverlay();
-}
-
-// ---------- settings, laid out like Hivogram's: a list of pages, each page with its rows; changes apply at once ----------
-const USERS_PATH = 'M16 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm-8 0a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm0 2c-2.3 0-7 1.2-7 3.5V19h14v-2.5C15 14.2 10.3 13 8 13zm8 0c-.3 0-.6 0-1 .1 1.2.8 2 2 2 3.4V19h6v-2.5c0-2.3-4.7-3.5-7-3.5z';
-const CHATS_PATH = 'M4 4h12a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H9l-4 3.5V15H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm16 4a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-1v3l-3.5-3H10a2 2 0 0 1-1.6-.8L10 17h6a4 4 0 0 0 4-4z';
-const SET_PAGES = [
-  { id: 'accounts', ic: USERS_PATH, title: 'Аккаунты', sub: () => { const n = state.accounts.length; return n ? `${n} ${plural(n, 'аккаунт', 'аккаунта', 'аккаунтов')}, цвет, порядок, прокси` : 'Добавьте первый аккаунт'; } },
-  { id: 'notifications', ic: BELL_PATH, title: 'Уведомления', sub: () => state.settings.notifications ? (state.settings.notify_preview ? 'Включены, с текстом сообщения' : 'Включены, без текста') : 'Выключены' },
-  { id: 'chats', ic: CHATS_PATH, title: 'Все чаты и лента', sub: () => 'Общий список чатов всех аккаунтов' },
-  { id: 'sleep', ic: MOON_PATH, title: 'Спящий режим', sub: () => state.settings.sleep_enabled ? `Загружено не больше ${state.settings.max_awake}` : 'Выключен, все аккаунты в памяти' },
-  { id: 'window', ic: TRAY_PATH, title: 'Окно', sub: () => state.settings.close_to_tray ? 'Крестик сворачивает в трей' : 'Крестик закрывает приложение' },
-  { id: 'keys', ic: KEYS_PATH, title: 'Горячие клавиши', sub: () => 'Переключение аккаунтов с клавиатуры' },
-  { id: 'updates', ic: REFRESH_PATH, title: 'Обновления', sub: () => `Версия ${state.version || ''}` },
-];
-let setPage = '';
-function plural(n, one, few, many) {
-  const m10 = n % 10, m100 = n % 100;
-  return m10 === 1 && m100 !== 11 ? one : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? few : many;
-}
-async function saveSettings(patch) {
-  state.settings = { ...state.settings, ...patch };
-  try { await invoke('set_settings', { settings: state.settings }); } catch (e) { alertErr(e); }
-}
-
-function renderSettings(page, back = false) {
-  const prev = setPage;
-  setPage = page;
-  const s = state.settings;
-  const cur = SET_PAGES.find((p) => p.id === page);
-  const body = $('#ov-body');
-  const nav = (p) => `<button class="set-row nav-row" data-p="${p.id}"><span class="af-ic">${icon(p.ic)}</span><span class="af-txt"><b>${p.title}</b><small>${esc(p.sub())}</small></span><span class="chev"></span></button>`;
-  const toggle = (ic, id, on, title, text) => `<label class="set-row"><span class="af-ic">${icon(ic)}</span><span class="af-txt"><b>${title}</b>${text ? `<small>${text}</small>` : ''}</span>
-    <input type="checkbox" id="${id}" ${on ? 'checked' : ''}><span class="switch"></span></label>`;
-  const note = (t) => `<p class="set-note">${t}</p>`;
-  let html = '';
-  if (!cur) {
-    html = `<div class="set-brand"><img src="logo.png" alt=""><div><b>Hovi Space</b><small>Все аккаунты Gem Space в одном окне</small></div></div>
-      <div class="af-card set-card">${SET_PAGES.map(nav).join('')}</div>
-      <div class="af-card set-card"><div class="set-row set-col"><div class="set-head"><span class="af-ic">${icon(SIZE_PATH)}</span><span class="af-txt"><b>Размер интерфейса</b><small>Панель аккаунтов и страницы Gem Space</small></span></div>
-        <div class="seg" id="s-scale">${SCALES.map((v) => `<button type="button" data-v="${v}" class="${v === (s.ui_scale || 100) ? 'on' : ''}">${v}%</button>`).join('')}<span class="seg-pill"></span></div></div></div>
-      ${note('Внутри каждого аккаунта обычная веб-версия Gem Space. Hovi Space её не изменяет и ничего не отправляет от вашего имени.')}`;
-  } else if (page === 'accounts') {
-    html = `<div class="af-card set-card">${state.accounts.map((a) => `<button class="set-row acc-row" data-a="${esc(a.id)}"><span class="ava" style="background:${esc(a.color)}">${esc(initials(a.name))}</span>
-        <span class="af-txt"><b>${esc(a.name)}</b><small>${a.awake ? 'Загружен' : 'Спит'}${a.pinned ? ' · не усыплять' : ''}${a.proxy ? ' · через прокси' : ''}${a.unread ? ` · непрочитанных ${a.unread}` : ''}</small></span><span class="chev"></span></button>`).join('')}
-        <button class="set-row" id="s-add"><span class="af-ic">${icon('M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z')}</span><span class="af-txt"><b>Добавить аккаунт</b><small>Новый вход в Gem Space по номеру телефона</small></span></button></div>
-      ${note('У каждого аккаунта свои данные, как в отдельном браузере. Порядок меняется правым кликом по аккаунту в панели.')}`;
-  } else if (page === 'notifications') {
-    html = `<div class="af-card set-card">${toggle(BELL_PATH, 's-notif', s.notifications, 'Уведомления', 'О новых сообщениях во всех аккаунтах')}
-      ${toggle(TEXT_PATH, 's-preview', s.notify_preview, 'Текст сообщения', 'Показывать в уведомлении, а не только имя')}</div>
-      ${note('В заголовке уведомления стоит имя аккаунта, клик открывает этот аккаунт. Спящие аккаунты уведомлений не присылают.')}`;
-  } else if (page === 'chats') {
-    const n = (state.feed || []).length;
-    html = `<div class="af-card set-card"><button class="set-row" id="s-open-chats"><span class="af-ic">${icon(CHATS_PATH)}</span><span class="af-txt"><b>Открыть «Все чаты»</b><small>Кнопка сверху панели аккаунтов</small></span><span class="chev"></span></button>
-      <div class="set-row"><span class="af-ic">${icon(TRAY_PATH)}</span><span class="af-txt"><b>Лента</b><small>${n ? `${n} ${plural(n, 'новое сообщение', 'новых сообщения', 'новых сообщений')}` : 'Новых сообщений нет'}</small></span>
-        <button class="btn small" id="s-feed-clear" ${n ? '' : 'disabled'}>Очистить</button></div></div>
-      ${note('«Все чаты» собирает списки чатов, которые показывают страницы аккаунтов, и сортирует их по времени. Hovi Space только читает эти списки и никуда их не отправляет. У спящих аккаунтов показан последний известный список.')}`;
-  } else if (page === 'sleep') {
-    html = `<div class="af-card set-card">${toggle(MOON_PATH, 's-sleep', s.sleep_enabled, 'Спящий режим', 'Давно не открытые аккаунты выгружаются из памяти')}
-      <div class="set-row" id="s-max-row"><span class="af-ic">${icon(LAYERS_PATH)}</span><span class="af-txt"><b>Загружено одновременно</b><small>Открытый и «Не усыплять» не считаются</small></span>
-        <span class="stepper"><button type="button" data-d="-1" aria-label="Меньше">−</button><input type="number" id="s-max" min="1" max="60" value="${s.max_awake}"><button type="button" data-d="1" aria-label="Больше">+</button></span></div></div>
-      ${note('Спящий аккаунт не присылает уведомлений и просыпается, когда вы его открываете. Важные аккаунты отметьте «Не усыплять» правым кликом.')}`;
-  } else if (page === 'window') {
-    html = `<div class="af-card set-card">${toggle(TRAY_PATH, 's-tray', s.close_to_tray, 'Сворачивать в трей', 'Крестик прячет окно, уведомления продолжают приходить')}</div>`;
-  } else if (page === 'keys') {
-    const key = (k, text) => `<div class="key-row"><span class="keys">${k.map((x) => `<kbd>${x}</kbd>`).join('<i>+</i>')}</span><span>${text}</span></div>`;
-    html = `<div class="af-card set-card keys-list">${key(['Ctrl', '1…9'], 'Аккаунт по номеру')}${key(['Ctrl', 'Tab'], 'Следующий аккаунт')}${key(['Ctrl', 'Shift', 'Tab'], 'Предыдущий аккаунт')}
-      ${key(['Ctrl', 'колесо'], 'Масштаб')}${key(['Esc'], 'Закрыть «Все чаты» и окна')}<div class="key-row"><span class="keys"><kbd>Правый клик</kbd></span><span>Изменить, усыпить, порядок, удалить</span></div></div>`;
-  } else if (page === 'updates') {
-    html = `<div class="af-card set-card"><div class="set-row"><span class="af-ic">${icon(REFRESH_PATH)}</span><span class="af-txt"><b>Версия ${esc(state.version || '')}</b><small id="s-check-res">Проверяются сами раз в несколько часов</small></span>
-      <button class="btn small" id="s-check">Проверить</button></div></div>
-      ${note('Обновление ставится поверх, аккаунты и входы сохраняются.')}`;
-  }
-  body.innerHTML = `<div class="set-view${back ? ' back' : prev !== page ? ' fwd' : ''}">
-    <div class="set-top"><button class="x" id="s-back" title="${cur ? 'Назад' : 'Закрыть (Esc)'}">${cur ? icon('M20 11H7.8l5.6-5.6L12 4l-8 8 8 8 1.4-1.4L7.8 13H20z') : '✕'}</button><h1>${cur ? cur.title : 'Настройки'}</h1></div>
-    ${html}</div>`;
-  $('#s-back').onclick = () => (cur ? renderSettings('', true) : closeOverlay());
-  body.querySelectorAll('.nav-row').forEach((r) => { r.onclick = () => renderSettings(r.dataset.p); });
-  const seg = $('#s-scale');
-  if (seg) {
-    seg.querySelectorAll('button').forEach((btn) => {
-      btn.onclick = () => { seg.querySelectorAll('button').forEach((x) => x.classList.remove('on')); btn.classList.add('on'); segPill(seg); saveSettings({ ui_scale: Number(btn.dataset.v) }); };
-    });
-    requestAnimationFrame(() => segPill(seg));
-  }
-  const bind = (id, key, after) => { const el = $('#' + id); if (el) el.onchange = () => { saveSettings({ [key]: el.checked }); if (after) after(); }; };
-  bind('s-notif', 'notifications', () => { $('#s-preview').closest('.set-row').classList.toggle('off', !$('#s-notif').checked); });
-  if ($('#s-preview')) $('#s-preview').closest('.set-row').classList.toggle('off', !s.notifications);
-  bind('s-preview', 'notify_preview');
-  bind('s-tray', 'close_to_tray');
-  const syncMax = () => $('#s-max-row') && $('#s-max-row').classList.toggle('off', !$('#s-sleep').checked);
-  bind('s-sleep', 'sleep_enabled', syncMax);
-  if ($('#s-sleep')) syncMax();
-  const max = $('#s-max');
-  if (max) {
-    const put = (v) => { max.value = Math.max(1, Math.min(60, v || 8)); saveSettings({ max_awake: Number(max.value) }); };
-    max.onchange = () => put(parseInt(max.value, 10));
-    body.querySelectorAll('.stepper button').forEach((btn) => {
-      btn.onclick = () => { put((parseInt(max.value, 10) || 8) + Number(btn.dataset.d)); max.classList.remove('bump'); void max.offsetWidth; max.classList.add('bump'); };
-    });
-  }
-  body.querySelectorAll('.acc-row').forEach((r) => { r.onclick = () => { const a = state.accounts.find((x) => x.id === r.dataset.a); if (a) openOverlay('edit', a); }; });
-  if ($('#s-add')) $('#s-add').onclick = () => openOverlay('add');
-  if ($('#s-open-chats')) $('#s-open-chats').onclick = async () => { await closeOverlay(); setPanel(true); };
-  if ($('#s-feed-clear')) $('#s-feed-clear').onclick = async () => { try { await invoke('feed_clear', { account: null }); } catch (e) { alertErr(e); } state.feed = []; renderSettings('chats'); };
-  if ($('#s-check')) $('#s-check').onclick = async () => {
-    const res = $('#s-check-res');
-    res.textContent = 'Проверяю…';
-    try {
-      const v = await invoke('check_update');
-      res.textContent = v ? `Есть версия ${v}` : 'Это последняя версия';
-      if (v) openOverlay('update');
-    } catch (e) { res.textContent = 'Не удалось проверить: ' + (typeof e === 'string' ? e : (e && e.message) || e); }
-  };
 }
 
 async function closeOverlay(restore = true) {
@@ -615,7 +581,6 @@ async function setPanel(open) {
 }
 
 window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && overlayKind === 'settings' && setPage) { renderSettings('', true); return; }
   if (e.key === 'Escape' && overlayKind && overlayKind !== 'welcome') { closeOverlay(); return; }
   if (!e.ctrlKey || e.altKey) return;
   let key = null;

@@ -355,26 +355,3 @@ div.set-row { cursor: default; }
 #panel .feed-row .ava { width: 48px; height: 48px; font-size: 16px; }
 #panel .fr-body { -webkit-line-clamp: 1; }
 #panel #feed-note { font-size: 12px; padding-top: 8px; border-top: 1px solid var(--line); }
-/* ---------- settings: Hivogram's layout, a list of pages and one page at a time ---------- */
-#overlay.set-mode { background: radial-gradient(ellipse 60% 45% at 50% 0%, rgba(var(--accent-rgb), .10), transparent 70%), var(--bg); }
-#overlay.set-mode .sheet { width: min(520px, 100%); padding: 20px 20px 36px; }
-#overlay.set-mode .sheet > header { display: none; }
-#overlay.set-mode .sheet > * { animation: none; }
-.set-view { display: flex; flex-direction: column; gap: 12px; }
-.set-view.fwd { animation: page-fwd 260ms var(--ease) both; }
-.set-view.back { animation: page-back 260ms var(--ease) both; }
-.set-top { display: flex; align-items: center; gap: 10px; margin: 0 0 4px -6px; }
-.set-top h1 { margin: 0; font-size: 20px; font-weight: 900; }
-.set-top .x svg { width: 20px; height: 20px; fill: currentColor; }
-.set-brand { display: flex; align-items: center; gap: 14px; padding: 6px 4px 6px; }
-.set-brand img { width: 56px; height: 56px; }
-.set-brand b { display: block; font-size: 20px; font-weight: 900; }
-.set-brand small { color: var(--muted); font-size: 13px; }
-button.set-row { width: 100%; border: 0; background: none; text-align: left; font: inherit; color: inherit; border-radius: 0; }
-.nav-row:hover .af-txt b, .acc-row:hover .af-txt b, #s-add:hover .af-txt b, #s-open-chats:hover .af-txt b { color: var(--accent); }
-.chev { width: 8px; height: 8px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(-45deg); margin-right: 6px; flex: none; }
-.acc-row .ava { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-weight: 800; font-size: 13px; flex: none; }
-.set-note { color: var(--muted); font-size: 12.5px; margin: -2px 6px 0; }
-.set-card.keys-list { padding: 8px 16px; }
-@keyframes page-fwd { from { opacity: 0; transform: translateX(24px); } }
-@keyframes page-back { from { opacity: 0; transform: translateX(-24px); } }
