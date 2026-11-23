@@ -24,6 +24,6 @@ html,body{margin:0;height:100%;overflow:hidden;background:#0e1621;font-family:"S
 <script>
 if (location.search.includes('menu')) document.getElementById('menu').style.display = 'block';
 const tab = /[?&](chats|feed)/.exec(location.search);
-if (tab) { const r = document.getElementById('rail'); r.style.width = '456px'; r.src = '../../desktop/ui/index.html?' + tab[1]; }
+if (tab) { const r = document.getElementById('rail'); r.style.width = '456px'; r.src = '../../desktop/ui/index.html?' + tab[1]; r.nextElementSibling.src = 'chat.html?focus'; }
 if (location.search.includes('toast')) document.getElementById('toast').style.display = 'block';
 </script></body></html>

@@ -56,6 +56,8 @@ svg { fill: currentColor; }
 .input { display:flex; align-items:center; gap:10px; padding:12px 18px 16px; background:var(--bg); flex:none; }
 .field { flex:1; height:54px; border-radius:27px; background:var(--pill); display:flex; align-items:center; padding:0 10px 0 22px; color:var(--muted); font-size:16px; }
 .demo { position:fixed; right:14px; bottom:84px; font-size:11px; color:#6d6c72; letter-spacing:.04em; }
+/* «Все чаты» open next to the page: the page's own navigation and list are hidden */
+.focus .nav, .focus .list { display:none; }
 /* phone: only the open chat, like the mobile web layout */
 .phone .nav, .phone .list { display:none; }
 .phone .head { height:64px; padding:0 8px; gap:8px; }

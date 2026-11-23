@@ -594,8 +594,9 @@ async fn feed_open(app: AppHandle, key: u64) -> Result<(), String> {
 #[tauri::command]
 async fn chat_open(app: AppHandle, account: String, name: String) -> Result<(), String> {
     switch_to(&app, &account)?;
+    let panel = app.state::<AppState>().live.lock().unwrap().panel;
     if let (Some(wv), Ok(js_name)) = (app.get_webview(&label_of(&account)), serde_json::to_string(&name)) {
-        let _ = wv.eval(format!("window.__gemspaceOpenChat && window.__gemspaceOpenChat({js_name})"));
+        let _ = wv.eval(format!("{}window.__gemspaceOpenChat && window.__gemspaceOpenChat({js_name})", focus_js(panel)));
     }
     Ok(())
 }
@@ -638,6 +639,18 @@ async fn set_overlay(app: AppHandle, open: bool) {
 async fn set_panel(app: AppHandle, open: bool) {
     app.state::<AppState>().live.lock().unwrap().panel = open;
     layout(&app);
+    if let Some(window) = main_window(&app) {
+        for wv in window.webviews() {
+            if id_of(wv.label()).is_some() {
+                let _ = wv.eval(focus_js(open));
+            }
+        }
+    }
+}
+
+/// While "Все чаты" is open, account pages show only the open chat (shared/chats.js, `__gemspaceFocus`).
+fn focus_js(on: bool) -> String {
+    format!("window.__gemspaceFocus && window.__gemspaceFocus({on});")
 }
 
 #[tauri::command]
@@ -730,6 +743,10 @@ async fn acc_chats(app: AppHandle, webview: Webview, chats: Vec<ChatRow>) {
         let mut live = st.live.lock().unwrap();
         known && live.chats.get(&id) != Some(&rows) && { live.chats.insert(id, rows); true }
     };
+    // a page that loaded while "Все чаты" was open gets the same view as the others
+    if app.state::<AppState>().live.lock().unwrap().panel {
+        let _ = webview.eval(focus_js(true));
+    }
     if changed {
         publish(&app);
     }

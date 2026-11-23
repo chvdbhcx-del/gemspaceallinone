@@ -182,7 +182,7 @@ function renderChats() {
   });
   $('#feed-clear').hidden = true;
   const missing = state.accounts.filter((a) => !(lists[a.id] || []).length).map((a) => a.name);
-  $('#feed-note').textContent = (missing.length ? `Пока без списка: ${missing.join(', ')}. Чаты аккаунта появятся, когда он загрузится. ` : '')
+  $('#feed-note').textContent = (missing.length ? `Пока без списка: ${missing.join(', ').replace(/\.$/, '')}. Чаты аккаунта появятся, когда он загрузится. ` : '')
     + 'Hovi Space только читает список, который показывает страница Gem Space, и никуда его не отправляет.';
   const q = chatQuery.trim().toLowerCase();
   rows = rows.filter((r) => (!feedFilter || r.account === feedFilter) && (!chatUnreadOnly || r.unread) && (!q || r.name.toLowerCase().includes(q)));

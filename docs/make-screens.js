@@ -47,7 +47,10 @@ async function shot(browser, key, file, opts, page, before) {
   await shot(b, 'd5', 'desktop-settings', D, rail, (p) => p.click('#gear'));
   await shot(b, 'd9', 'desktop-settings-sleep', D, rail, async (p) => { await p.click('#gear'); await p.waitForTimeout(300); await p.click('.nav-row[data-p="sleep"]'); });
   await shot(b, 'd6', 'desktop-feed', D, 'docs/demo/desktop.html?feed');
-  await shot(b, 'd8', 'desktop-chats', D, 'docs/demo/desktop.html?chats');
+  await shot(b, 'd8', 'desktop-chats', D, 'docs/demo/desktop.html?chats', async (p) => {
+    await p.waitForTimeout(500);
+    await p.frameLocator('#rail').locator('.gs-row[data-n="Ирина Морозова"]').click(); // the chat open on the right
+  });
   await shot(b, 'd7', 'desktop-welcome', D, rail + '?empty');
   await shot(b, 'a1', 'android-main', P, 'docs/demo/phone.html');
   await shot(b, 'a2', 'android-add', P, 'docs/demo/phone.html?dialog');
