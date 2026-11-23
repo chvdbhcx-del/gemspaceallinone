@@ -32,11 +32,13 @@ pub struct Settings {
     /// show the message text in notifications
     pub notify_preview: bool,
     pub close_to_tray: bool,
+    /// interface size in percent, for the rail and the Gem Space pages (80..=150)
+    pub ui_scale: u32,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { sleep_enabled: true, max_awake: 8, notifications: true, notify_preview: true, close_to_tray: true }
+        Self { sleep_enabled: true, max_awake: 8, notifications: true, notify_preview: true, close_to_tray: true, ui_scale: 100 }
     }
 }
 

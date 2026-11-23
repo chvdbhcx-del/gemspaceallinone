@@ -17,6 +17,8 @@
     "allow-set-settings",
     "allow-feed-open",
     "allow-feed-clear",
+    "allow-check-update",
+    "allow-install-update",
     "allow-hotkey"
   ]
 }

@@ -4,6 +4,7 @@
 
 mod feed;
 mod store;
+mod update;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
@@ -25,8 +26,30 @@ use store::{Account, Settings, Store};
 
 pub const GEM_URL: &str = "https://web.gemspace.com/";
 const MAIN: &str = "main";
-const RAIL: &str = "rail";
+pub(crate) const RAIL: &str = "rail";
 const RAIL_WIDTH: f64 = 76.0;
+
+/// Interface size as a zoom factor, from the settings (100% = 1.0).
+fn ui_scale(app: &AppHandle) -> f64 {
+    let pct = app.state::<AppState>().store.lock().unwrap().settings.ui_scale.clamp(80, 150);
+    pct as f64 / 100.0
+}
+
+/// The rail grows with the interface size so its tiles keep their proportions.
+fn rail_width(app: &AppHandle) -> f64 {
+    (RAIL_WIDTH * ui_scale(app)).round()
+}
+
+/// Applies the interface size to the rail and every loaded account.
+fn apply_scale(app: &AppHandle) {
+    let z = ui_scale(app);
+    if let Some(window) = main_window(app) {
+        for wv in window.webviews() {
+            let _ = wv.set_zoom(z);
+        }
+    }
+    layout(app);
+}
 const ACC_PREFIX: &str = "acc-";
 
 /// Injected into every account webview before the page's own scripts. It only reroutes the page's
@@ -34,7 +57,7 @@ const ACC_PREFIX: &str = "acc-";
 const INJECT_JS: &str = include_str!("inject.js");
 
 #[derive(Default)]
-struct Live {
+pub(crate) struct Live {
     unread: HashMap<String, u32>,
     /// accounts that got a notification since they were last opened
     attention: HashSet<String>,
@@ -44,11 +67,13 @@ struct Live {
     overlay: bool,
     /// new messages of all accounts, from their notifications
     feed: Feed,
+    /// a newer version found by the updater (update.rs)
+    pub(crate) update: Option<update::UpdateView>,
 }
 
-struct AppState {
+pub(crate) struct AppState {
     store: Mutex<Store>,
-    live: Mutex<Live>,
+    pub(crate) live: Mutex<Live>,
 }
 
 #[derive(Serialize, Clone)]
@@ -67,6 +92,7 @@ struct StateView {
     settings: Settings,
     total_unread: u32,
     feed: Vec<FeedItem>,
+    update: Option<update::UpdateView>,
     version: String,
 }
 
@@ -107,12 +133,13 @@ fn snapshot(app: &AppHandle) -> StateView {
         settings: store.settings.clone(),
         total_unread: total,
         feed: live.feed.items(),
+        update: live.update.clone(),
         version: app.package_info().version.to_string(),
     }
 }
 
 /// Pushes the state to the rail and refreshes the window title and the tray tooltip.
-fn publish(app: &AppHandle) {
+pub(crate) fn publish(app: &AppHandle) {
     let view = snapshot(app);
     let _ = app.emit_to(RAIL, "state", &view);
     let title = if view.total_unread > 0 { format!("({}) Gemspace", view.total_unread) } else { "Gemspace".into() };
@@ -145,15 +172,16 @@ fn layout(app: &AppHandle) {
     let st = app.state::<AppState>();
     let active = st.store.lock().unwrap().active.clone();
     let overlay = st.live.lock().unwrap().overlay;
-    let content_w = (size.width - RAIL_WIDTH).max(1.0);
+    let rail_w = rail_width(app);
+    let content_w = (size.width - rail_w).max(1.0);
     for wv in window.webviews() {
         let label = wv.label().to_string();
         if label == RAIL {
-            let w = if overlay { size.width } else { RAIL_WIDTH };
+            let w = if overlay { size.width } else { rail_w };
             let _ = wv.set_position(LogicalPosition::new(0.0, 0.0));
             let _ = wv.set_size(LogicalSize::new(w, size.height));
         } else if let Some(id) = id_of(&label) {
-            let _ = wv.set_position(LogicalPosition::new(RAIL_WIDTH, 0.0));
+            let _ = wv.set_position(LogicalPosition::new(rail_w, 0.0));
             let _ = wv.set_size(LogicalSize::new(content_w, size.height));
             if !overlay && active.as_deref() == Some(id) {
                 let _ = wv.show();
@@ -241,12 +269,17 @@ fn create_account_webview(app: &AppHandle, account: &Account) -> tauri::Result<W
         return Err(tauri::Error::WindowNotFound);
     };
     let size = size.to_logical::<f64>(scale);
+    let rail_w = rail_width(app);
     let wv = window.add_child(
         builder,
-        LogicalPosition::new(RAIL_WIDTH, 0.0),
-        LogicalSize::new((size.width - RAIL_WIDTH).max(1.0), size.height),
+        LogicalPosition::new(rail_w, 0.0),
+        LogicalSize::new((size.width - rail_w).max(1.0), size.height),
     )?;
     let _ = wv.hide();
+    let z = ui_scale(app);
+    if (z - 1.0).abs() > f64::EPSILON {
+        let _ = wv.set_zoom(z);
+    }
     Ok(wv)
 }
 
@@ -527,6 +560,18 @@ async fn feed_clear(app: AppHandle, account: Option<String>) {
     }
 }
 
+/// Checks for a newer version now (settings); returns it, or None when this one is the newest.
+#[tauri::command]
+async fn check_update(app: AppHandle) -> Result<Option<String>, String> {
+    Ok(update::check(&app).await?.map(|u| u.version))
+}
+
+/// Installs the newer version and restarts.
+#[tauri::command]
+async fn install_update(app: AppHandle) -> Result<(), String> {
+    update::install(&app).await
+}
+
 #[tauri::command]
 async fn set_overlay(app: AppHandle, open: bool) {
     app.state::<AppState>().live.lock().unwrap().overlay = open;
@@ -541,7 +586,16 @@ async fn set_overlay(app: AppHandle, open: bool) {
 
 #[tauri::command]
 async fn set_settings(app: AppHandle, settings: Settings) {
-    app.state::<AppState>().store.lock().unwrap().settings = settings;
+    let rescale = {
+        let st = app.state::<AppState>();
+        let mut store = st.store.lock().unwrap();
+        let rescale = store.settings.ui_scale != settings.ui_scale;
+        store.settings = settings;
+        rescale
+    };
+    if rescale {
+        apply_scale(&app);
+    }
     save(&app);
     enforce_sleep(&app);
     publish(&app);
@@ -620,6 +674,7 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)))
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             get_state,
             add_account,
@@ -633,6 +688,8 @@ pub fn run() {
             set_settings,
             feed_open,
             feed_clear,
+            check_update,
+            install_update,
             hotkey,
             acc_notify,
             acc_hotkey
@@ -642,6 +699,7 @@ pub fn run() {
             let store = Store::load(&handle);
             app.manage(AppState { store: Mutex::new(store), live: Mutex::new(Live::default()) });
             store::purge_deleted(&handle);
+            update::start_checks(handle.clone());
 
             let window = WindowBuilder::new(app, MAIN)
                 .title("Gemspace")
@@ -652,11 +710,15 @@ pub fn run() {
                 let _ = window.set_icon(icon);
             }
             let size = window.inner_size()?.to_logical::<f64>(window.scale_factor()?);
-            window.add_child(
+            let rail = window.add_child(
                 WebviewBuilder::new(RAIL, WebviewUrl::App("index.html".into())),
                 LogicalPosition::new(0.0, 0.0),
-                LogicalSize::new(RAIL_WIDTH, size.height),
+                LogicalSize::new(rail_width(&handle), size.height),
             )?;
+            let z = ui_scale(&handle);
+            if (z - 1.0).abs() > f64::EPSILON {
+                let _ = rail.set_zoom(z);
+            }
 
             let show = MenuItem::with_id(app, "show", "Открыть Gemspace", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Выйти", true, None::<&str>)?;

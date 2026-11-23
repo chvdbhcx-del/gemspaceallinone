@@ -14,6 +14,8 @@ fn main() {
         "set_settings",
         "feed_open",
         "feed_clear",
+        "check_update",
+        "install_update",
         "hotkey",
         "acc_notify",
         "acc_hotkey",

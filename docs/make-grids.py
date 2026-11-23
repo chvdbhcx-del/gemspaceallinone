@@ -30,12 +30,13 @@ GRIDS = {
         ('desktop-notify', 'Уведомление с именем аккаунта'),
         ('desktop-settings', 'Настройки'),
     ]),
-    'grid-phone': ('phone', 5, [
+    'grid-phone': ('phone', 6, [
         ('android-main', 'Аккаунты сверху'),
         ('android-feed', 'Лента'),
         ('android-add', 'Новый аккаунт'),
         ('android-menu', 'Меню аккаунта'),
         ('android-notify', 'Уведомления'),
+        ('android-settings', 'Настройки'),
     ]),
 }
 
