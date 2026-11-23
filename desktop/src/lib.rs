@@ -81,6 +81,8 @@ pub(crate) struct Live {
     pub(crate) update: Option<update::UpdateView>,
     /// the chat list each awake account's page shows, for "Все чаты"
     chats: HashMap<String, Vec<ChatRow>>,
+    /// broadcast messages waiting for their page's answer: token -> (account, reply)
+    waiters: HashMap<String, (String, tokio::sync::oneshot::Sender<(bool, String)>)>,
 }
 
 /// One row of an account's chat list, as its page shows it (shared/chats.js).
@@ -134,6 +136,8 @@ struct StateView {
     chats: HashMap<String, Vec<ChatRow>>,
     labels: Vec<Label>,
     chat_labels: BTreeMap<String, Vec<String>>,
+    /// broadcast messages each account sent today (the daily limit)
+    sent_today: BTreeMap<String, u32>,
     update: Option<update::UpdateView>,
     version: String,
 }
@@ -178,6 +182,7 @@ fn snapshot(app: &AppHandle) -> StateView {
         chats: live.chats.clone(),
         labels: store.labels.clone(),
         chat_labels: store.chat_labels.clone(),
+        sent_today: if store.sent_day == chrono_day() { store.sent.clone() } else { BTreeMap::new() },
         update: live.update.clone(),
         version: app.package_info().version.to_string(),
     }
@@ -513,6 +518,7 @@ async fn remove_account(app: AppHandle, id: String) -> Result<(), String> {
         store.pending_delete.push(id.clone());
         let prefix = format!("{id}|");
         store.chat_labels.retain(|k, _| !k.starts_with(&prefix));
+        store.sent.remove(&id);
         let mut live = st.live.lock().unwrap();
         live.unread.remove(&id);
         live.attention.remove(&id);
@@ -608,6 +614,94 @@ async fn chat_open(app: AppHandle, account: String, name: String) -> Result<(), 
         let _ = wv.eval(format!("{}window.__gemspaceOpenChat && window.__gemspaceOpenChat({js_name})", focus_js(panel)));
     }
     Ok(())
+}
+
+/// One message of a broadcast (рассылка) the user started in "Все чаты": the rail calls this for each chat
+/// it picked, with its own random pauses in between. Only a chat the account's page lists (never a new
+/// contact), only within the account's daily limit; the account is shown while its page opens the chat,
+/// types the text and sends it (shared/chats.js, `__gemspaceSend`). Returns how many it sent today.
+#[tauri::command]
+async fn broadcast_send(app: AppHandle, account: String, name: String, text: String) -> Result<u32, String> {
+    let text = text.trim().to_string();
+    if text.is_empty() {
+        return Err("Пустой текст".into());
+    }
+    if text.chars().count() > 4000 {
+        return Err("Текст длиннее 4000 знаков".into());
+    }
+    {
+        let st = app.state::<AppState>();
+        let live = st.live.lock().unwrap();
+        if !live.chats.get(&account).is_some_and(|rows| rows.iter().any(|c| c.name == name)) {
+            return Err("Этого чата нет в списке аккаунта".into());
+        }
+        if live.waiters.values().any(|(a, _)| *a == account) {
+            return Err("Аккаунт ещё отправляет предыдущее сообщение".into());
+        }
+    }
+    {
+        let st = app.state::<AppState>();
+        let mut store = st.store.lock().unwrap();
+        let today = chrono_day();
+        if store.sent_day != today {
+            store.sent_day = today;
+            store.sent.clear();
+        }
+        let n = store.sent.get(&account).copied().unwrap_or(0);
+        if n >= store.settings.bc_limit {
+            return Err(format!("Дневной лимит аккаунта исчерпан ({n})"));
+        }
+    }
+    switch_to(&app, &account)?;
+    let wv = app.get_webview(&label_of(&account)).ok_or("Аккаунт не загружен")?;
+    let token = store::new_id();
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let panel = {
+        let st = app.state::<AppState>();
+        let mut live = st.live.lock().unwrap();
+        live.waiters.insert(token.clone(), (account.clone(), tx));
+        live.panel
+    };
+    let q = |v: &str| serde_json::to_string(v).unwrap_or_else(|_| "\"\"".into());
+    let (jn, jt, jk) = (q(&name), q(&text), q(&token));
+    let js = format!(
+        "{}if (window.__gemspaceSend) window.__gemspaceSend({jn}, {jt}, {jk}); \
+         else if (window.__gemspaceSent) window.__gemspaceSent({{ token: {jk}, ok: false, error: 'Страница ещё не загрузилась' }});",
+        focus_js(panel)
+    );
+    let _ = wv.eval(js);
+    let answer = tokio::time::timeout(std::time::Duration::from_secs(45), rx).await;
+    app.state::<AppState>().live.lock().unwrap().waiters.remove(&token);
+    match answer {
+        Ok(Ok((true, _))) => {
+            let n = {
+                let st = app.state::<AppState>();
+                let mut store = st.store.lock().unwrap();
+                let n = store.sent.entry(account).or_insert(0);
+                *n += 1;
+                *n
+            };
+            save(&app);
+            publish(&app);
+            Ok(n)
+        }
+        Ok(Ok((false, error))) => Err(if error.is_empty() { "Не отправлено".into() } else { error.chars().take(200).collect() }),
+        _ => Err("Страница не ответила".into()),
+    }
+}
+
+/// The page's answer for one broadcast message (shared/chats.js via inject.js).
+#[tauri::command]
+async fn acc_sent(app: AppHandle, webview: Webview, token: String, ok: bool, error: String) {
+    let Some(id) = id_of(webview.label()) else { return };
+    let st = app.state::<AppState>();
+    let mut live = st.live.lock().unwrap();
+    // only the page the message went to can answer for it
+    if live.waiters.get(&token).is_some_and(|(a, _)| a == id) {
+        if let Some((_, tx)) = live.waiters.remove(&token) {
+            let _ = tx.send((ok, error));
+        }
+    }
 }
 
 /// Saves the labels and which chats carry them (the rail edits them, Rust only keeps them tidy).
@@ -741,7 +835,8 @@ fn focus_js(on: bool) -> String {
 }
 
 #[tauri::command]
-async fn set_settings(app: AppHandle, settings: Settings) {
+async fn set_settings(app: AppHandle, mut settings: Settings) {
+    settings.clamp();
     let rescale = {
         let st = app.state::<AppState>();
         let mut store = st.store.lock().unwrap();
@@ -875,7 +970,9 @@ pub fn run() {
             acc_hotkey,
             set_labels,
             backup_export,
-            backup_import
+            backup_import,
+            broadcast_send,
+            acc_sent
         ])
         .setup(|app| {
             let handle = app.handle().clone();

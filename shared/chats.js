@@ -1,8 +1,9 @@
 // Hovi Space: shared chat list. Runs in every account page after inject.js. It only READS the chat list
 // that the page already shows (name, time, preview, unread count, avatar of the rows in the DOM) and
-// hands it to Hovi Space for the "Все чаты" list across accounts. Nothing is sent anywhere else, nothing
-// is typed or sent in Gem Space. It relies on Gem Space's data-test="group-link" rows; if their markup
-// changes, the list simply stays empty and Hovi Space shows a hint instead.
+// hands it to Hovi Space for the "Все чаты" list across accounts. Nothing is sent anywhere else. It relies
+// on Gem Space's data-test="group-link" rows; if their markup changes, the list simply stays empty and
+// Hovi Space shows a hint instead. The only thing that types in Gem Space is __gemspaceSend below, and only
+// when the user starts a broadcast (рассылка) to chats they picked.
 (function () {
   if (window.__gemspaceChats) return;
   window.__gemspaceChats = true;
@@ -113,5 +114,127 @@
       if (el.scrollHeight > el.clientHeight + 10 && /auto|scroll/.test(getComputedStyle(el).overflowY)) { el.scrollTop = 0; break; }
     }
     setTimeout(function () { var r = find(); if (r) r.click(); }, 400);
+  };
+  // Broadcast (рассылка), started only by the user: opens one chat of the list by its exact name, checks that
+  // this chat is the one open, puts the text into the message field and sends it the way a person would
+  // (the send button, or Enter). Reports the result with __gemspaceSent({token, ok, error}). It refuses
+  // rather than guesses: no such row, another chat open, a draft already in the field, or a field that is
+  // not emptied after sending are all reported as errors, and the broadcast stops on repeated errors.
+  function visible(el) {
+    if (!el || !el.getClientRects().length) return false;
+    var r = el.getBoundingClientRect();
+    return r.width > 40 && r.height > 10;
+  }
+  function inList(el) {
+    return !!(el.closest && (el.closest(ROW) || el.closest('[data-test="groups-navigation"]') || el.closest('[data-test="group-search"]')));
+  }
+  function composer() {
+    var all = document.querySelectorAll('textarea, [contenteditable="true"], [contenteditable=""], [role="textbox"]');
+    var best = null;
+    for (var i = 0; i < all.length; i++) {
+      var el = all[i];
+      if (inList(el) || !visible(el)) continue;
+      if (el.closest && el.closest('[role="dialog"]')) continue;
+      // the message field is the lowest one on the screen
+      if (!best || el.getBoundingClientRect().top > best.getBoundingClientRect().top) best = el;
+    }
+    return best;
+  }
+  function fieldText(el) {
+    return String(el.tagName === 'TEXTAREA' ? el.value : (el.innerText || el.textContent || '')).replace(/[\s​]+/g, ' ').trim();
+  }
+  // the open chat's title: a leaf with exactly this name, outside the chat list, in the upper part of the screen
+  function headerShows(name) {
+    var all = document.querySelectorAll('h1, h2, h3, h4, h5, h6, span, div, p, b, strong');
+    for (var i = 0; i < all.length; i++) {
+      var el = all[i];
+      if (el.children.length > 1 || inList(el) || text(el) !== name || !visible(el)) continue;
+      if (el.getBoundingClientRect().top < window.innerHeight * 0.3) return true;
+    }
+    return false;
+  }
+  function sendButton(field) {
+    var box = field;
+    for (var up = 0; up < 6 && box; up++, box = box.parentElement) {
+      var bs = box.querySelectorAll('button, [role="button"]');
+      for (var i = 0; i < bs.length; i++) {
+        var b = bs[i];
+        var label = [b.getAttribute('data-test'), b.getAttribute('aria-label'), b.getAttribute('title'), b.getAttribute('data-testid')].join(' ');
+        if (/send|отправ|submit/i.test(label) && b.getClientRects().length && !b.disabled) return b;
+      }
+    }
+    return null;
+  }
+  function wait(test, ms) {
+    return new Promise(function (resolve) {
+      var t0 = Date.now();
+      (function tick() {
+        var v = null;
+        try { v = test(); } catch (e) {}
+        if (v || Date.now() - t0 > ms) return resolve(v);
+        setTimeout(tick, 150);
+      })();
+    });
+  }
+  function clear(field) {
+    try {
+      field.focus();
+      if (field.tagName === 'TEXTAREA') { field.select(); } else { document.getSelection().selectAllChildren(field); }
+      document.execCommand('delete');
+    } catch (e) {}
+  }
+  var sending = false;
+  window.__gemspaceSend = function (name, body, token) {
+    function done(ok, error) {
+      sending = false;
+      try { if (window.__gemspaceSent) window.__gemspaceSent({ token: token, ok: ok, error: error || '' }); } catch (e) {}
+    }
+    if (sending) return done(false, 'Предыдущее сообщение ещё отправляется');
+    sending = true;
+    name = String(name || ''); body = String(body || '');
+    if (!name || !body.trim()) return done(false, 'Пустой текст');
+    (async function () {
+      window.__gemspaceOpenChat(name);
+      var row = await wait(function () {
+        var rows = document.querySelectorAll(ROW);
+        for (var i = 0; i < rows.length; i++) if (text(rows[i].querySelector('h6')) === name) return rows[i];
+        return null;
+      }, 3000);
+      if (!row) return done(false, 'Чат не найден в списке');
+      if (!(await wait(function () { return headerShows(name); }, 8000))) return done(false, 'Не открылся нужный чат');
+      var field = await wait(composer, 5000);
+      if (!field) return done(false, 'Нет поля для сообщения (канал или закрытый чат?)');
+      await wait(function () { return false; }, 400); // a draft of this chat comes back right after opening it
+      if (fieldText(field)) return done(false, 'В поле уже есть черновик, чат пропущен');
+      field.focus();
+      var lines = body.replace(/\r\n?/g, '\n').split('\n');
+      for (var i = 0; i < lines.length; i++) {
+        if (i) {
+          // a new line inside the message, not "send"
+          if (field.tagName === 'TEXTAREA') document.execCommand('insertText', false, '\n');
+          else if (!document.execCommand('insertLineBreak')) document.execCommand('insertParagraph');
+        }
+        if (lines[i]) document.execCommand('insertText', false, lines[i]);
+      }
+      var want = body.replace(/\s+/g, ' ').trim();
+      if (fieldText(field) !== want) {
+        clear(field);
+        return done(false, 'Не удалось вставить текст в поле');
+      }
+      await wait(function () { return false; }, 250);
+      var btn = sendButton(field);
+      if (btn) btn.click();
+      else {
+        ['keydown', 'keypress', 'keyup'].forEach(function (type) {
+          field.dispatchEvent(new KeyboardEvent(type, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+        });
+      }
+      var gone = await wait(function () { var f = composer(); return !f || !fieldText(f); }, 6000);
+      if (!gone) {
+        clear(composer() || field);
+        return done(false, 'Gem Space не принял отправку');
+      }
+      done(true);
+    })().catch(function (e) { done(false, 'Ошибка: ' + (e && e.message || e)); });
   };
 })();

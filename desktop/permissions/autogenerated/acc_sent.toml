@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-acc-sent"
+description = "Enables the acc_sent command without any pre-configured scope."
+commands.allow = ["acc_sent"]
+
+[[permission]]
+identifier = "deny-acc-sent"
+description = "Denies the acc_sent command without any pre-configured scope."
+commands.deny = ["acc_sent"]

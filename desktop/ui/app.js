@@ -7,7 +7,7 @@ const { Menu } = window.__TAURI__.menu;
 
 const COLORS = ['#3aa0ff', '#26a69a', '#7e57c2', '#ef5350', '#ffa726', '#66bb6a', '#ec407a', '#8d6e63'];
 let state = { accounts: [], active: null, settings: {}, total_unread: 0 };
-let overlayKind = null; // null | 'add' | 'edit' | 'settings' | 'welcome' | 'update'
+let overlayKind = null; // null | 'add' | 'edit' | 'settings' | 'welcome' | 'update' | 'label' | 'broadcast'
 let panelOpen = false; // the chat list column next to the rail
 let chatQuery = '';
 let chatUnreadOnly = false;
@@ -190,7 +190,7 @@ function renderChats() {
   $('#feed-clear').hidden = true;
   const missing = state.accounts.filter((a) => !(lists[a.id] || []).length).map((a) => a.name);
   $('#feed-note').textContent = (missing.length ? `Пока без списка: ${missing.join(', ').replace(/\.$/, '')}. Чаты аккаунта появятся, когда он загрузится. ` : '')
-    + 'Правый клик по чату ставит метки. Hovi Space только читает список, который показывает страница Gem Space, и никуда его не отправляет.';
+    + 'Правый клик по чату ставит метки. Hovi Space читает список, который показывает страница Gem Space, и никуда его не отправляет. Пишет в чаты он только в рассылке, которую запустили вы.';
   const q = chatQuery.trim().toLowerCase();
   rows = rows.filter((r) => (!feedFilter || r.account === feedFilter) && (!chatUnreadOnly || r.unread) && (!q || r.name.toLowerCase().includes(q))
     && (!labelFilter || labelIds(r.account, r.name).includes(labelFilter)));
@@ -413,7 +413,7 @@ async function openOverlay(kind, a) {
   await invoke('set_overlay', { open: true });
   $('#overlay').hidden = false;
   $('#overlay').classList.toggle('welcome-mode', kind === 'welcome');
-  $('#overlay').classList.toggle('form-mode', kind === 'add' || kind === 'edit' || kind === 'remove' || kind === 'settings' || kind === 'label');
+  $('#overlay').classList.toggle('form-mode', kind === 'add' || kind === 'edit' || kind === 'remove' || kind === 'settings' || kind === 'label' || kind === 'broadcast');
   const body = $('#ov-body');
   $('#ov-close').hidden = kind === 'welcome';
   if (kind === 'welcome') {
@@ -442,6 +442,8 @@ async function openOverlay(kind, a) {
         if (state.accounts.length) { await closeOverlay(); if (!state.active) invoke('switch_account', { id: state.accounts[0].id }).catch(alertErr); }
       } catch (e) { alertErr(e); }
     };
+  } else if (kind === 'broadcast') {
+    bcForm(body);
   } else if (kind === 'label') {
     const l = a && a.label;
     const color = l ? l.color : COLORS[(state.labels || []).length % COLORS.length];
