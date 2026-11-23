@@ -1,8 +1,8 @@
-// Gemspace: shared chat list. Runs in every account page after inject.js. It only READS the chat list
+// Hovi Space: shared chat list. Runs in every account page after inject.js. It only READS the chat list
 // that the page already shows (name, time, preview, unread count, avatar of the rows in the DOM) and
-// hands it to Gemspace for the "Все чаты" list across accounts. Nothing is sent anywhere else, nothing
+// hands it to Hovi Space for the "Все чаты" list across accounts. Nothing is sent anywhere else, nothing
 // is typed or sent in Gem Space. It relies on Gem Space's data-test="group-link" rows; if their markup
-// changes, the list simply stays empty and Gemspace shows a hint instead.
+// changes, the list simply stays empty and Hovi Space shows a hint instead.
 (function () {
   if (window.__gemspaceChats) return;
   window.__gemspaceChats = true;

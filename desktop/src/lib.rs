@@ -1,4 +1,4 @@
-//! Gemspace desktop: one window, an account rail on the left and one isolated webview per
+//! Hovi Space desktop: one window, an account rail on the left and one isolated webview per
 //! Gem Space account (its own WebView2 data folder, so its own cookies and storage, and its own proxy).
 //! The Gem Space web app itself is loaded unmodified from https://web.gemspace.com/.
 
@@ -28,6 +28,8 @@ pub const GEM_URL: &str = "https://web.gemspace.com/";
 const MAIN: &str = "main";
 pub(crate) const RAIL: &str = "rail";
 const RAIL_WIDTH: f64 = 76.0;
+/// "Все чаты": the chat list column next to the rail, the open chat stays visible on the right
+const PANEL_WIDTH: f64 = 380.0;
 
 /// Interface size as a zoom factor, from the settings (100% = 1.0).
 fn ui_scale(app: &AppHandle) -> f64 {
@@ -35,9 +37,11 @@ fn ui_scale(app: &AppHandle) -> f64 {
     pct as f64 / 100.0
 }
 
-/// The rail grows with the interface size so its tiles keep their proportions.
+/// Where the account pages start: the rail, plus the chat list column while it is open. Both grow with
+/// the interface size so their contents keep their proportions.
 fn rail_width(app: &AppHandle) -> f64 {
-    (RAIL_WIDTH * ui_scale(app)).round()
+    let panel = app.state::<AppState>().live.lock().unwrap().panel;
+    ((RAIL_WIDTH + if panel { PANEL_WIDTH } else { 0.0 }) * ui_scale(app)).round()
 }
 
 /// Applies the interface size to the rail and every loaded account.
@@ -53,7 +57,7 @@ fn apply_scale(app: &AppHandle) {
 const ACC_PREFIX: &str = "acc-";
 
 /// Injected into every account webview before the page's own scripts. It reroutes the page's web
-/// notifications to Gemspace (so they carry the account name), forwards account hotkeys and reads the
+/// notifications to Hovi Space (so they carry the account name), forwards account hotkeys and reads the
 /// chat list the page shows for "Все чаты" (shared/chats.js). It never types or sends anything.
 const INJECT_JS: &str = concat!(include_str!("inject.js"), "\n", include_str!("../../shared/chats.js"));
 
@@ -64,8 +68,10 @@ pub(crate) struct Live {
     attention: HashSet<String>,
     /// loaded (awake) accounts, least recently used first
     lru: Vec<String>,
-    /// the rail covers the whole window (settings, account editor, feed)
+    /// the rail covers the whole window (settings, account editor)
     overlay: bool,
+    /// the chat list column ("Все чаты") is open next to the rail
+    panel: bool,
     /// new messages of all accounts, from their notifications
     feed: Feed,
     /// a newer version found by the updater (update.rs)
@@ -174,15 +180,15 @@ fn snapshot(app: &AppHandle) -> StateView {
 pub(crate) fn publish(app: &AppHandle) {
     let view = snapshot(app);
     let _ = app.emit_to(RAIL, "state", &view);
-    let title = if view.total_unread > 0 { format!("({}) Gemspace", view.total_unread) } else { "Gemspace".into() };
+    let title = if view.total_unread > 0 { format!("({}) Hovi Space", view.total_unread) } else { "Hovi Space".into() };
     if let Some(w) = main_window(app) {
         let _ = w.set_title(&title);
     }
     if let Some(tray) = app.tray_by_id("tray") {
         let tip = if view.total_unread > 0 {
-            format!("Gemspace: {} непрочитанных", view.total_unread)
+            format!("Hovi Space: {} непрочитанных", view.total_unread)
         } else {
-            "Gemspace".into()
+            "Hovi Space".into()
         };
         let _ = tray.set_tooltip(Some(tip));
     }
@@ -627,6 +633,13 @@ async fn set_overlay(app: AppHandle, open: bool) {
     }
 }
 
+/// Opens or closes the chat list column next to the rail.
+#[tauri::command]
+async fn set_panel(app: AppHandle, open: bool) {
+    app.state::<AppState>().live.lock().unwrap().panel = open;
+    layout(&app);
+}
+
 #[tauri::command]
 async fn set_settings(app: AppHandle, settings: Settings) {
     let rescale = {
@@ -751,6 +764,7 @@ pub fn run() {
             install_update,
             hotkey,
             chat_open,
+            set_panel,
             acc_notify,
             acc_chats,
             acc_hotkey
@@ -763,7 +777,7 @@ pub fn run() {
             update::start_checks(handle.clone());
 
             let window = WindowBuilder::new(app, MAIN)
-                .title("Gemspace")
+                .title("Hovi Space")
                 .inner_size(1280.0, 820.0)
                 .min_inner_size(760.0, 480.0)
                 .build()?;
@@ -781,10 +795,10 @@ pub fn run() {
                 let _ = rail.set_zoom(z);
             }
 
-            let show = MenuItem::with_id(app, "show", "Открыть Gemspace", true, None::<&str>)?;
+            let show = MenuItem::with_id(app, "show", "Открыть Hovi Space", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Выйти", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &quit])?;
-            let mut tray = TrayIconBuilder::with_id("tray").tooltip("Gemspace").menu(&menu).show_menu_on_left_click(false);
+            let mut tray = TrayIconBuilder::with_id("tray").tooltip("Hovi Space").menu(&menu).show_menu_on_left_click(false);
             if let Some(icon) = app.default_window_icon().cloned() {
                 tray = tray.icon(icon);
             }
@@ -853,7 +867,7 @@ pub fn run() {
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("error while running Gemspace");
+        .expect("error while running Hovi Space");
 }
 
 #[cfg(test)]

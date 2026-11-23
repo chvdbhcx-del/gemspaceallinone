@@ -4,12 +4,13 @@ import org.json.JSONObject
 import java.util.Calendar
 
 /** One row of an account's chat list as its page shows it (shared/chats.js). */
-data class ChatRow(val name: String, val time: String, val preview: String, val unread: Int) {
+data class ChatRow(val name: String, val time: String, val preview: String, val unread: Int, val avatar: String = "") {
     companion object {
         fun of(o: JSONObject): ChatRow? {
             val name = o.optString("name").trim().take(80)
             if (name.isEmpty()) return null
-            return ChatRow(name, o.optString("time").take(16), o.optString("preview").take(160), o.optInt("unread").coerceIn(0, 99999))
+            return ChatRow(name, o.optString("time").take(16), o.optString("preview").take(160), o.optInt("unread").coerceIn(0, 99999),
+                o.optString("avatar").takeIf { it.startsWith("https://") && it.length < 1000 } ?: "")
         }
 
         private val WEEK = mapOf("вс" to 1, "пн" to 2, "вт" to 3, "ср" to 4, "чт" to 5, "пт" to 6, "сб" to 7,

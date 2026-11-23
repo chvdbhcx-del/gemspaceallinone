@@ -57,7 +57,11 @@
     version: '0.1.0',
   };
   if (/[?&]empty/.test(location.search)) { state.accounts = []; state.active = null; state.feed = []; state.chats = {}; state.total_unread = 0; }
-  if (/[?&]chats/.test(location.search)) { try { localStorage.setItem('gs-feed-tab', 'all'); } catch (e) {} }
+  const tab = /[?&](chats|feed)/.exec(location.search);
+  if (tab) {
+    try { localStorage.setItem('gs-feed-tab', tab[1] === 'feed' ? 'new' : 'all'); } catch (e) {}
+    addEventListener('load', () => setTimeout(() => document.querySelector('#feed') && document.querySelector('#feed').click(), 50));
+  }
   var listeners = [];
   window.__TAURI__ = {
     core: {

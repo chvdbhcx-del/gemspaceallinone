@@ -1,7 +1,7 @@
 //! The shared feed: new messages of all accounts in one list, newest first.
 //!
 //! It is filled from the notifications the Gem Space pages show (inject.js reroutes them here),
-//! so Gemspace never reads the pages. It is read only: a row opens its account (and, when the
+//! so Hovi Space never reads the pages. It is read only: a row opens its account (and, when the
 //! page gave the notification a click handler, the chat), replies are written in Gem Space itself.
 
 use std::collections::VecDeque;

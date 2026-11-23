@@ -64,7 +64,7 @@ object Notifier {
     fun serviceNotification(ctx: Context, unread: Int) =
         NotificationCompat.Builder(ctx, CH_SERVICE)
             .setSmallIcon(R.drawable.ic_stat)
-            .setContentTitle("Gemspace на связи")
+            .setContentTitle("Hovi Space на связи")
             .setContentText(if (unread > 0) "Непрочитанных: $unread" else "Аккаунты получают сообщения")
             .setOngoing(true)
             .setShowWhen(false)

@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Gemspace",
+  "productName": "Hovi Space",
   "version": "0.1.0",
   "identifier": "app.gemspace.allinone",
   "build": {
@@ -18,7 +18,7 @@
     "targets": [
       "nsis"
     ],
-    "publisher": "Gemspace",
+    "publisher": "Hovi Space",
     "shortDescription": "Все аккаунты Gem Space в одном окне",
     "icon": [
       "icons/32x32.png",
@@ -37,7 +37,8 @@
           "Russian",
           "English"
         ],
-        "displayLanguageSelector": false
+        "displayLanguageSelector": false,
+        "installerHooks": "installer-hooks.nsh"
       }
     }
   },
