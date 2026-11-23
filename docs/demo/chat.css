@@ -1,0 +1,27 @@
+/* A generic made-up messenger page for demo screenshots. It is NOT Gem Space's interface. */
+:root { --bg:#f4f6f8; --side:#fff; --fg:#17212b; --muted:#6b7884; --me:#d9ecff; --them:#fff; --line:#e3e8ec; --acc:#3aa0ff; }
+* { box-sizing: border-box; }
+html, body { margin:0; height:100%; font:14px/1.4 "Segoe UI", system-ui, sans-serif; color:var(--fg); background:var(--bg); }
+.app { display:flex; height:100%; }
+.list { width:320px; background:var(--side); border-right:1px solid var(--line); display:flex; flex-direction:column; }
+.search { margin:12px; padding:8px 12px; border-radius:18px; background:#eef2f5; color:var(--muted); }
+.item { display:flex; gap:10px; padding:9px 12px; align-items:center; }
+.item.on { background:#e6f2ff; }
+.av { width:44px; height:44px; border-radius:50%; flex:none; display:grid; place-items:center; color:#fff; font-weight:600; }
+.meta { flex:1; min-width:0; }
+.row { display:flex; justify-content:space-between; gap:6px; }
+.name { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.time { color:var(--muted); font-size:12px; }
+.prev { color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:13px; }
+.cnt { background:var(--acc); color:#fff; border-radius:10px; font-size:11px; padding:0 6px; font-weight:700; line-height:18px; }
+.chat { flex:1; display:flex; flex-direction:column; min-width:0; }
+.head { height:58px; background:var(--side); border-bottom:1px solid var(--line); display:flex; align-items:center; gap:10px; padding:0 16px; }
+.head small { display:block; color:var(--muted); font-size:12px; }
+.msgs { flex:1; padding:18px 22px; display:flex; flex-direction:column; gap:8px; justify-content:flex-end;
+  background:linear-gradient(160deg,#e8f1f8,#eef0f7); }
+.b { max-width:62%; padding:8px 12px; border-radius:14px; background:var(--them); box-shadow:0 1px 1px rgba(0,0,0,.06); }
+.b.me { align-self:flex-end; background:var(--me); }
+.b i { display:block; text-align:right; font-style:normal; font-size:11px; color:var(--muted); }
+.day { align-self:center; font-size:12px; color:#fff; background:rgba(0,0,0,.25); padding:2px 10px; border-radius:10px; }
+.input { height:56px; background:var(--side); border-top:1px solid var(--line); display:flex; align-items:center; padding:0 16px; color:var(--muted); }
+.demo { position:fixed; right:10px; bottom:66px; font-size:11px; color:#fff; background:rgba(0,0,0,.35); padding:2px 8px; border-radius:8px; }
