@@ -16,7 +16,7 @@
         <item name="android:windowAnimationStyle">@style/Gemspace.DialogAnimation</item>
     </style>
 
-    <style name="Gemspace.DialogAnimation">
+    <style name="Gemspace.DialogAnimation" parent="@android:style/Animation.Dialog">
         <item name="android:windowEnterAnimation">@anim/dialog_in</item>
         <item name="android:windowExitAnimation">@anim/dialog_out</item>
     </style>
