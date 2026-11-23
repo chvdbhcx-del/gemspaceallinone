@@ -18,6 +18,7 @@ fn main() {
         "install_update",
         "hotkey",
         "chat_open",
+        "set_panel",
         "acc_notify",
         "acc_chats",
         "acc_hotkey",

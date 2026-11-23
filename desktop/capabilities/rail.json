@@ -18,6 +18,7 @@
     "allow-feed-open",
     "allow-feed-clear",
     "allow-chat-open",
+    "allow-set-panel",
     "allow-check-update",
     "allow-install-update",
     "allow-hotkey"

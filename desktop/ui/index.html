@@ -8,7 +8,7 @@
 </head>
 <body>
 <nav id="rail">
-  <button id="feed" class="tile feed-tile" title="Лента: новые сообщения всех аккаунтов" aria-label="Лента"><span class="ava"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 12h-4a3 3 0 0 1-6 0H5V5h14z"/></svg></span><span class="lbl">Лента</span></button>
+  <button id="feed" class="tile feed-tile" title="Все чаты всех аккаунтов" aria-label="Все чаты"><span class="ava"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h12a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H9l-4 3.5V15H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm16 4a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-1v3l-3.5-3H10a2 2 0 0 1-1.6-.8L10 17h6a4 4 0 0 0 4-4z"/></svg></span><span class="lbl">Все чаты</span></button>
   <div class="sep"></div>
   <div id="tiles"><span id="indicator"></span></div>
   <button id="add" class="tool" title="Добавить аккаунт" aria-label="Добавить аккаунт">+</button>
@@ -16,6 +16,18 @@
   <button id="upd" class="tool upd" title="Доступно обновление" aria-label="Обновить Hovi Space" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4h2v9.2l3.6-3.6 1.4 1.4-6 6-6-6 1.4-1.4 3.6 3.6zM5 18h14v2H5z"/></svg></button>
   <button id="gear" class="tool" title="Настройки" aria-label="Настройки"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg></button>
 </nav>
+
+<!-- "Все чаты": the chats of every account in one list, next to the rail; the chat opens on the right -->
+<aside id="panel" hidden>
+  <div class="p-head">
+    <div class="seg p-tabs" id="p-tabs"><button type="button" data-t="all">Все чаты</button><button type="button" data-t="new">Лента<b id="p-feed-n"></b></button><span class="seg-pill"></span></div>
+    <button id="p-close" class="x" title="Закрыть (Esc)">✕</button>
+  </div>
+  <label class="p-search"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 3a7 7 0 0 1 5.6 11.2l4.6 4.6-1.4 1.4-4.6-4.6A7 7 0 1 1 10 3zm0 2a5 5 0 1 0 0 10 5 5 0 0 0 0-10z"/></svg><input id="p-q" placeholder="Поиск по чатам" autocomplete="off"></label>
+  <div class="feed-bar"><div id="feed-chips" class="chips"></div><button class="btn small" id="feed-clear">Очистить</button></div>
+  <div id="feed-list"></div>
+  <p class="hint" id="feed-note"></p>
+</aside>
 
 
 <section id="overlay" hidden>

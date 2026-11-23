@@ -28,6 +28,8 @@ pub const GEM_URL: &str = "https://web.gemspace.com/";
 const MAIN: &str = "main";
 pub(crate) const RAIL: &str = "rail";
 const RAIL_WIDTH: f64 = 76.0;
+/// "Все чаты": the chat list column next to the rail, the open chat stays visible on the right
+const PANEL_WIDTH: f64 = 380.0;
 
 /// Interface size as a zoom factor, from the settings (100% = 1.0).
 fn ui_scale(app: &AppHandle) -> f64 {
@@ -35,9 +37,11 @@ fn ui_scale(app: &AppHandle) -> f64 {
     pct as f64 / 100.0
 }
 
-/// The rail grows with the interface size so its tiles keep their proportions.
+/// Where the account pages start: the rail, plus the chat list column while it is open. Both grow with
+/// the interface size so their contents keep their proportions.
 fn rail_width(app: &AppHandle) -> f64 {
-    (RAIL_WIDTH * ui_scale(app)).round()
+    let panel = app.state::<AppState>().live.lock().unwrap().panel;
+    ((RAIL_WIDTH + if panel { PANEL_WIDTH } else { 0.0 }) * ui_scale(app)).round()
 }
 
 /// Applies the interface size to the rail and every loaded account.
@@ -64,8 +68,10 @@ pub(crate) struct Live {
     attention: HashSet<String>,
     /// loaded (awake) accounts, least recently used first
     lru: Vec<String>,
-    /// the rail covers the whole window (settings, account editor, feed)
+    /// the rail covers the whole window (settings, account editor)
     overlay: bool,
+    /// the chat list column ("Все чаты") is open next to the rail
+    panel: bool,
     /// new messages of all accounts, from their notifications
     feed: Feed,
     /// a newer version found by the updater (update.rs)
@@ -627,6 +633,13 @@ async fn set_overlay(app: AppHandle, open: bool) {
     }
 }
 
+/// Opens or closes the chat list column next to the rail.
+#[tauri::command]
+async fn set_panel(app: AppHandle, open: bool) {
+    app.state::<AppState>().live.lock().unwrap().panel = open;
+    layout(&app);
+}
+
 #[tauri::command]
 async fn set_settings(app: AppHandle, settings: Settings) {
     let rescale = {
@@ -751,6 +764,7 @@ pub fn run() {
             install_update,
             hotkey,
             chat_open,
+            set_panel,
             acc_notify,
             acc_chats,
             acc_hotkey

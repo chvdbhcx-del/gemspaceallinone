@@ -7,7 +7,11 @@ const { Menu } = window.__TAURI__.menu;
 
 const COLORS = ['#3aa0ff', '#26a69a', '#7e57c2', '#ef5350', '#ffa726', '#66bb6a', '#ec407a', '#8d6e63'];
 let state = { accounts: [], active: null, settings: {}, total_unread: 0 };
-let overlayKind = null; // null | 'add' | 'edit' | 'settings' | 'welcome' | 'feed'
+let overlayKind = null; // null | 'add' | 'edit' | 'settings' | 'welcome' | 'update'
+let panelOpen = false; // the chat list column next to the rail
+let chatQuery = '';
+let chatUnreadOnly = false;
+let selectedChat = null; // 'account|name' of the chat opened from the list
 let feedFilter = null; // account id or null for all
 const feedSeen = new Set(); // feed rows already drawn, so only new ones slide in
 let feedShown = 0;
@@ -37,7 +41,7 @@ function renderRail() {
       b.dataset.id = a.id;
       b.innerHTML = '<span class="ava"></span><span class="lbl"></span>';
       b.onclick = () => {
-        if (overlayKind === 'feed') closeOverlay(false); // switching an account hides the feed
+        if (panelOpen) setPanel(false); // an account tile leaves "Все чаты", as in Hivogram
         invoke('switch_account', { id: b.dataset.id }).catch(alertErr);
       };
       b.oncontextmenu = (e) => {
@@ -83,10 +87,15 @@ function renderUpdateButton() {
   if (state.update) b.title = `Доступна версия ${state.update.version}. Нажмите, чтобы обновить`;
 }
 
+function unreadChats() {
+  const lists = state.chats || {};
+  return state.accounts.reduce((n, a) => n + (lists[a.id] || []).filter((c) => c.unread).length, 0);
+}
+
 function renderFeedButton() {
   const b = $('#feed');
-  const n = (state.feed || []).length;
-  b.classList.toggle('active', overlayKind === 'feed');
+  const n = unreadChats() || (state.feed || []).length;
+  b.classList.toggle('active', panelOpen);
   b.querySelectorAll('.badge').forEach((x) => x.remove());
   if (n > 0) {
     const badge = document.createElement('span');
@@ -94,7 +103,9 @@ function renderFeedButton() {
     badge.textContent = n > 99 ? '99+' : n;
     b.appendChild(badge);
   }
-  b.setAttribute('aria-label', 'Лента' + (n ? `, новых: ${n}` : ''));
+  b.setAttribute('aria-label', 'Все чаты' + (n ? `, непрочитанных: ${n}` : ''));
+  const f = (state.feed || []).length;
+  const fn = $('#p-feed-n'); if (fn) fn.textContent = f ? ' ' + (f > 99 ? '99+' : f) : '';
   feedShown = n;
 }
 
@@ -107,9 +118,9 @@ function when(ms) {
 }
 
 // The shared feed: new messages of every account, newest first. Read only: a row opens the chat in its account.
-// The feed overlay has two tabs: new messages (from notifications) and all chats of every account
-// (read from the chat list each page shows, see shared/chats.js).
-let feedTab = (() => { try { return localStorage.getItem('gs-feed-tab') === 'all' ? 'all' : 'new'; } catch (e) { return 'new'; } })();
+// The chat list column has two tabs, as Hivogram's "Все чаты | Входящие": the chats of every account (read
+// from the chat list each page shows, see shared/chats.js) and the feed of new messages (from notifications).
+let feedTab = (() => { try { return localStorage.getItem('gs-feed-tab') === 'new' ? 'new' : 'all'; } catch (e) { return 'all'; } })();
 const chatSeen = new Set();
 
 function segPill(seg) {
@@ -143,6 +154,8 @@ function chatTime(label) {
   return 0;
 }
 
+const chatIni = (n) => initials(n.replace(/[^\p{L}\p{N}\s]/gu, ' ').trim() || n);
+
 function renderChats() {
   const box = $('#feed-list');
   const accounts = new Map(state.accounts.map((a) => [a.id, a]));
@@ -151,38 +164,53 @@ function renderChats() {
   state.accounts.forEach((a) => (lists[a.id] || []).forEach((c, i) => rows.push({ ...c, account: a.id, i, at: chatTime(c.time) })));
   const present = state.accounts.filter((a) => (lists[a.id] || []).length);
   if (feedFilter && !present.some((a) => a.id === feedFilter)) feedFilter = null;
-  const unreadOf = (id) => (lists[id] || []).reduce((n, c) => n + (c.unread ? 1 : 0), 0);
-  $('#feed-chips').innerHTML = rows.length ? [`<button class="chip${feedFilter ? '' : ' on'}" data-a="">Все <b>${rows.length}</b></button>`]
-    .concat(present.map((a) => `<button class="chip${feedFilter === a.id ? ' on' : ''}" data-a="${esc(a.id)}"><i style="background:${esc(a.color)}"></i>${esc(a.name)}${unreadOf(a.id) ? ` <b class="u">${unreadOf(a.id)}</b>` : ''}</button>`)).join('') : '';
-  $('#feed-chips').querySelectorAll('.chip').forEach((c) => { c.onclick = () => { feedFilter = c.dataset.a || null; chatSeen.clear(); renderFeed(); }; });
+  const unread = rows.filter((r) => r.unread).length;
+  $('#feed-chips').innerHTML = [
+    `<button class="chip${!feedFilter && !chatUnreadOnly ? ' on' : ''}" data-k="all">Все</button>`,
+    `<button class="chip${chatUnreadOnly ? ' on' : ''}" data-k="unread">Непрочитанные${unread ? ` <b class="u">${unread}</b>` : ''}</button>`,
+  ].concat(present.map((a) => `<button class="chip${feedFilter === a.id ? ' on' : ''}" data-a="${esc(a.id)}"><i style="background:${esc(a.color)}"></i>${esc(a.name)}</button>`)).join('');
+  $('#feed-chips').querySelectorAll('.chip').forEach((c) => {
+    c.onclick = () => {
+      if (c.dataset.k === 'all') { feedFilter = null; chatUnreadOnly = false; }
+      else if (c.dataset.k === 'unread') chatUnreadOnly = !chatUnreadOnly;
+      else feedFilter = feedFilter === c.dataset.a ? null : c.dataset.a;
+      chatSeen.clear(); renderFeed();
+    };
+  });
   $('#feed-clear').hidden = true;
-  $('#feed-lead').textContent = 'Чаты всех аккаунтов одним списком, свежие сверху. Клик откроет чат в его аккаунте.';
   const missing = state.accounts.filter((a) => !(lists[a.id] || []).length).map((a) => a.name);
-  $('#feed-note').textContent = (missing.length ? `Пока без списка: ${missing.join(', ')}. Чаты аккаунта появятся, когда он загрузится, у спящих показан последний известный список. ` : '')
-    + 'Hovi Space только читает список, который показывает сама страница Gem Space, и никуда его не отправляет.';
-  rows = rows.filter((r) => !feedFilter || r.account === feedFilter);
+  $('#feed-note').textContent = (missing.length ? `Пока без списка: ${missing.join(', ')}. Чаты аккаунта появятся, когда он загрузится. ` : '')
+    + 'Hovi Space только читает список, который показывает страница Gem Space, и никуда его не отправляет.';
+  const q = chatQuery.trim().toLowerCase();
+  rows = rows.filter((r) => (!feedFilter || r.account === feedFilter) && (!chatUnreadOnly || r.unread) && (!q || r.name.toLowerCase().includes(q)));
   rows.sort((a, b) => (b.at - a.at) || (a.account === b.account ? a.i - b.i : 0));
   if (!rows.length) {
-    box.innerHTML = `<div class="feed-empty"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>
+    box.innerHTML = q || chatUnreadOnly
+      ? `<div class="feed-empty"><b>${q ? 'Ничего не найдено' : 'Непрочитанных нет'}</b></div>`
+      : `<div class="feed-empty"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>
       <b>Список чатов ещё не загрузился</b><span>Он появится, когда откроются страницы аккаунтов. Если не появляется совсем, значит Gem Space поменял страницу, напишите нам.</span></div>`;
     return;
   }
   box.innerHTML = rows.map((c) => {
     const a = accounts.get(c.account);
     const key = c.account + '|' + c.name;
-    const ci = initials(c.name.replace(/[^\p{L}\p{N}\s]/gu, ' ').trim() || c.name);
     const fresh = !chatSeen.has(key);
-    const ava = c.avatar ? `<span class="ava img"><img src="${esc(c.avatar)}" alt="" referrerpolicy="no-referrer" data-i="${esc(ci)}"></span>`
-      : `<span class="ava" style="background:${esc(a.color)}">${esc(ci)}</span>`;
-    return `<button class="feed-row chat-row${fresh ? ' new' : ''}${c.unread ? ' unread' : ''}" data-a="${esc(c.account)}" data-n="${esc(c.name)}">
-      ${ava}<span class="fr-main"><span class="fr-top"><span class="fr-title">${esc(c.name)}</span><span class="fr-acc"><i style="background:${esc(a.color)}"></i>${esc(a.name)}</span><span class="fr-time">${esc(c.time)}</span></span>
-      <span class="fr-bottom"><span class="fr-body">${esc(c.preview || (c.unread ? 'Новое сообщение' : ''))}</span>${c.unread ? `<span class="cnt">${c.unread > 999 ? '999+' : c.unread}</span>` : ''}</span></span></button>`;
+    const ci = chatIni(c.name);
+    const ava = c.avatar ? `<span class="cav img"><img src="${esc(c.avatar)}" alt="" referrerpolicy="no-referrer" data-i="${esc(ci)}"></span>`
+      : `<span class="cav" style="background:${esc(a.color)}">${esc(ci)}</span>`;
+    return `<button class="gs-row${fresh ? ' new' : ''}${c.unread ? ' unread' : ''}${selectedChat === key ? ' selected' : ''}" data-a="${esc(c.account)}" data-n="${esc(c.name)}" title="${esc(c.name)} · ${esc(a.name)}">
+      <span class="cav-wrap">${ava}<i class="acc-dot" style="background:${esc(a.color)}">${esc(initials(a.name).slice(0, 1))}</i></span>
+      <span class="gs-main"><span class="gs-top"><span class="gs-name">${esc(c.name)}</span><span class="gs-time">${esc(c.time)}</span></span>
+      <span class="gs-bottom"><span class="gs-prev">${esc(c.preview || (c.unread ? 'Новое сообщение' : ''))}</span>${c.unread ? `<span class="cnt">${c.unread > 999 ? '999+' : c.unread}</span>` : ''}</span></span></button>`;
   }).join('');
   rows.forEach((c) => chatSeen.add(c.account + '|' + c.name));
-  box.querySelectorAll('.ava.img img').forEach((im) => { im.onerror = () => { const s = im.parentNode; s.classList.remove('img'); s.textContent = im.dataset.i; }; });
-  box.querySelectorAll('.chat-row').forEach((r) => {
+  box.querySelectorAll('.cav.img img').forEach((im) => { im.onerror = () => { const sp = im.parentNode; sp.classList.remove('img'); sp.textContent = im.dataset.i; }; });
+  box.querySelectorAll('.gs-row').forEach((r) => {
     r.onclick = async () => {
-      try { await invoke('chat_open', { account: r.dataset.a, name: r.dataset.n }); closeOverlay(false); } catch (e) { alertErr(e); }
+      selectedChat = r.dataset.a + '|' + r.dataset.n;
+      box.querySelectorAll('.gs-row.selected').forEach((x) => x.classList.remove('selected'));
+      r.classList.add('selected');
+      try { await invoke('chat_open', { account: r.dataset.a, name: r.dataset.n }); } catch (e) { alertErr(e); }
     };
   });
 }
@@ -190,8 +218,8 @@ function renderChats() {
 function renderFeed() {
   const box = $('#feed-list');
   if (!box) return;
+  $('#p-q').parentNode.hidden = feedTab !== 'all';
   if (feedTab === 'all') { renderChats(); return; }
-  $('#feed-lead').textContent = 'Новые сообщения всех аккаунтов. Клик откроет чат в его аккаунте, ответить можно там.';
   $('#feed-note').textContent = 'Лента собирается из уведомлений аккаунтов, пока Hovi Space запущен. Спящие аккаунты сюда не пишут, важные отметьте «Не усыплять». Сообщения аккаунта уходят из ленты, когда в нём всё прочитано.';
   const accounts = new Map(state.accounts.map((a) => [a.id, a]));
   const items = (state.feed || []).filter((i) => accounts.has(i.account));
@@ -218,7 +246,7 @@ function renderFeed() {
   rows.forEach((i) => feedSeen.add(i.key));
   box.querySelectorAll('.feed-row').forEach((r) => {
     r.onclick = async () => {
-      try { await invoke('feed_open', { key: Number(r.dataset.key) }); closeOverlay(false); } catch (e) { alertErr(e); }
+      try { await invoke('feed_open', { key: Number(r.dataset.key) }); } catch (e) { alertErr(e); }
     };
   });
 }
@@ -331,7 +359,6 @@ async function openOverlay(kind, a) {
   overlayKind = kind;
   await invoke('set_overlay', { open: true });
   $('#overlay').hidden = false;
-  $('#overlay').classList.toggle('side', kind === 'feed');
   $('#overlay').classList.toggle('welcome-mode', kind === 'welcome');
   $('#overlay').classList.toggle('form-mode', kind === 'add' || kind === 'edit' || kind === 'remove' || kind === 'settings');
   const body = $('#ov-body');
@@ -392,33 +419,6 @@ async function openOverlay(kind, a) {
     $('#f-ok').onclick = async () => {
       try { await invoke('remove_account', { id: a.id }); closeOverlay(); } catch (e) { alertErr(e); }
     };
-  } else if (kind === 'feed') {
-    $('#ov-title').textContent = 'Лента';
-    body.innerHTML = `<div class="seg feed-tabs" id="feed-tabs"><button type="button" data-t="new">Новые сообщения</button><button type="button" data-t="all">Все чаты</button><span class="seg-pill"></span></div>
-      <p class="hint lead" id="feed-lead"></p>
-      <div class="feed-bar"><div id="feed-chips" class="chips"></div><button class="btn small" id="feed-clear">Очистить</button></div>
-      <div id="feed-list"></div>
-      <p class="hint" id="feed-note"></p>`;
-    feedSeen.clear();
-    (state.feed || []).forEach((i) => feedSeen.add(i.key));
-    chatSeen.clear();
-    $('#feed-clear').onclick = () => invoke('feed_clear', { account: feedFilter });
-    const tabs = $('#feed-tabs');
-    tabs.querySelectorAll('button').forEach((b) => {
-      b.classList.toggle('on', b.dataset.t === feedTab);
-      b.onclick = () => {
-        if (feedTab === b.dataset.t) return;
-        feedTab = b.dataset.t;
-        try { localStorage.setItem('gs-feed-tab', feedTab); } catch (e) {}
-        tabs.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
-        segPill(tabs);
-        chatSeen.clear(); feedSeen.clear();
-        renderFeed();
-      };
-    });
-    requestAnimationFrame(() => segPill(tabs));
-    renderFeed();
-    renderFeedButton();
   } else if (kind === 'update') {
     const u = state.update;
     $('#ov-title').textContent = 'Обновление';
@@ -544,7 +544,38 @@ $('#ov-close').onclick = () => closeOverlay();
 $('#add').onclick = () => openOverlay('add');
 $('#gear').onclick = () => openOverlay('settings');
 $('#upd').onclick = () => openOverlay('update');
-$('#feed').onclick = () => (overlayKind === 'feed' ? closeOverlay() : openOverlay('feed'));
+$('#feed').onclick = () => setPanel(!panelOpen);
+$('#p-close').onclick = () => setPanel(false);
+$('#p-q').oninput = (e) => { chatQuery = e.target.value; chatSeen.clear(); renderFeed(); };
+$('#feed-clear').onclick = () => invoke('feed_clear', { account: feedFilter });
+$('#p-tabs').querySelectorAll('button').forEach((b) => {
+  b.onclick = () => {
+    if (feedTab === b.dataset.t) return;
+    feedTab = b.dataset.t;
+    try { localStorage.setItem('gs-feed-tab', feedTab); } catch (e) {}
+    $('#p-tabs').querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
+    segPill($('#p-tabs'));
+    feedFilter = null; chatSeen.clear(); feedSeen.clear();
+    renderFeed();
+  };
+});
+window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && panelOpen && !overlayKind) setPanel(false); });
+
+// "Все чаты" opens as a column next to the rail; the account pages move right and stay visible.
+async function setPanel(open) {
+  panelOpen = open;
+  document.body.classList.toggle('panel-open', open);
+  $('#panel').hidden = !open;
+  if (open) {
+    $('#p-tabs').querySelectorAll('button').forEach((x) => x.classList.toggle('on', x.dataset.t === feedTab));
+    requestAnimationFrame(() => segPill($('#p-tabs')));
+    chatSeen.clear(); feedSeen.clear();
+    renderFeed();
+  }
+  renderFeedButton();
+  await invoke('set_panel', { open });
+  if (open && feedTab === 'all') $('#p-q').focus();
+}
 
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && overlayKind && overlayKind !== 'welcome') { closeOverlay(); return; }
@@ -560,7 +591,7 @@ window.addEventListener('contextmenu', (e) => { if (!e.target.closest('input')) 
 function apply(s) {
   state = s;
   renderRail();
-  if (overlayKind === 'feed') renderFeed();
+  if (panelOpen) renderFeed();
   if (!state.accounts.length && overlayKind !== 'add' && overlayKind !== 'welcome') openOverlay('welcome');
 }
 
