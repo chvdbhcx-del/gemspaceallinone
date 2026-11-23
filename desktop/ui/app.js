@@ -18,25 +18,60 @@ function initials(name) {
   return (parts[0][0] + (parts[1] ? parts[1][0] : '')).toUpperCase();
 }
 
+const PIN_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 3l5 5-3 1-4 4 1 5-2 2-4-4-5 5-1-1 5-5-4-4 2-2 5 1 4-4z"/></svg>';
+const MOON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 15.3A8.5 8.5 0 0 1 8.7 4a8.5 8.5 0 1 0 11.3 11.3z"/></svg>';
+const shown = new Map(); // id -> unread shown last time, so only a changed count pops
+
+// Updates the tiles in place (keyed by account id): a state push every few seconds must not replay animations.
 function renderRail() {
   const tiles = $('#tiles');
-  tiles.innerHTML = '';
+  const keep = new Set(state.accounts.map((a) => a.id));
+  tiles.querySelectorAll('.tile').forEach((t) => { if (!keep.has(t.dataset.id)) { t.remove(); shown.delete(t.dataset.id); } });
   state.accounts.forEach((a, i) => {
-    const b = document.createElement('button');
+    let b = tiles.querySelector(`.tile[data-id="${CSS.escape(a.id)}"]`);
+    if (!b) {
+      b = document.createElement('button');
+      b.dataset.id = a.id;
+      b.innerHTML = '<span class="ava"></span><span class="lbl"></span>';
+      b.onclick = () => invoke('switch_account', { id: b.dataset.id }).catch(alertErr);
+      b.oncontextmenu = (e) => {
+        e.preventDefault();
+        const idx = state.accounts.findIndex((x) => x.id === b.dataset.id);
+        if (idx >= 0) accountMenu(state.accounts[idx], idx);
+      };
+    }
+    if (tiles.children[i + 1] !== b) tiles.insertBefore(b, tiles.children[i + 1] || null); // child 0 is the indicator
     b.className = 'tile' + (a.id === state.active ? ' active' : '') + (a.awake ? '' : ' sleeping');
     const hk = i < 9 ? `  (Ctrl+${i + 1})` : '';
     b.title = a.name + hk + (a.awake ? '' : '\nспит, откроется по клику') + (a.proxy ? `\nпрокси: ${a.proxy}` : '');
-    let marks = '';
-    if (a.unread > 0) marks += `<span class="badge">${a.unread > 99 ? '99+' : a.unread}</span>`;
-    else if (a.attention) marks += '<span class="dot"></span>';
-    if (!a.awake) marks += '<span class="moon">☾</span>';
-    if (a.pinned) marks += '<span class="pin">📌</span>';
-    b.innerHTML = `<span class="ava" style="background:${esc(a.color || COLORS[0])}">${esc(initials(a.name))}</span>` +
-      `<span class="lbl">${esc(a.name)}</span>${marks}`;
-    b.onclick = () => invoke('switch_account', { id: a.id }).catch(alertErr);
-    b.oncontextmenu = (e) => { e.preventDefault(); accountMenu(a, i); };
-    tiles.appendChild(b);
+    b.setAttribute('aria-label', a.name + (a.unread ? `, непрочитанных: ${a.unread}` : ''));
+    const ava = b.querySelector('.ava');
+    ava.style.background = a.color || COLORS[0];
+    ava.textContent = initials(a.name);
+    b.querySelector('.lbl').textContent = a.name;
+    b.querySelectorAll('.badge, .dot, .moon, .pin').forEach((x) => x.remove());
+    const before = shown.get(a.id);
+    if (a.unread > 0) {
+      const badge = document.createElement('span');
+      badge.className = 'badge' + (before !== undefined && a.unread > before ? ' pop' : '');
+      badge.textContent = a.unread > 99 ? '99+' : a.unread;
+      b.appendChild(badge);
+    } else if (a.attention) {
+      b.insertAdjacentHTML('beforeend', '<span class="dot"></span>');
+    }
+    shown.set(a.id, a.unread);
+    if (!a.awake) b.insertAdjacentHTML('beforeend', `<span class="moon" title="спит">${MOON_SVG}</span>`);
+    if (a.pinned) b.insertAdjacentHTML('beforeend', `<span class="pin" title="не усыпляется">${PIN_SVG}</span>`);
   });
+  moveIndicator();
+}
+
+function moveIndicator() {
+  const ind = $('#indicator');
+  const active = $('#tiles .tile.active');
+  if (!active) { ind.style.opacity = '0'; return; }
+  ind.style.transform = `translateY(${active.offsetTop + (active.offsetHeight - 28) / 2}px)`;
+  ind.style.opacity = '1';
 }
 
 async function accountMenu(a, i) {
@@ -60,7 +95,10 @@ async function accountMenu(a, i) {
 
 function alertErr(e) {
   const msg = typeof e === 'string' ? e : (e && e.message) || String(e);
-  if (overlayKind) { const el = $('.err'); if (el) { el.textContent = msg; return; } }
+  if (overlayKind) {
+    const el = $('.err');
+    if (el) { el.textContent = msg; el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake'); return; }
+  }
   console.error(msg);
 }
 
@@ -105,7 +143,7 @@ async function openOverlay(kind, a) {
   $('#ov-close').hidden = kind === 'welcome';
   if (kind === 'welcome') {
     $('#ov-title').textContent = '';
-    body.innerHTML = `<div class="empty"><h1>Gemspace</h1>
+    body.innerHTML = `<div class="empty"><img src="logo.png" alt=""><h1>Gemspace</h1>
       <p>Все аккаунты Gem Space в одном окне. Каждый аккаунт живёт отдельно: свои данные, свой вход, свой прокси.</p>
       <button class="btn primary" id="w-add">Добавить первый аккаунт</button></div>`;
     $('#w-add').onclick = () => openOverlay('add');
@@ -167,8 +205,8 @@ async function openOverlay(kind, a) {
         <label class="check"><input type="checkbox" id="s-tray" ${s.close_to_tray ? 'checked' : ''}><span>Крестик сворачивает в трей, уведомления продолжают приходить</span></label>
       </div>
       <h2>Клавиши</h2>
-      <div class="card"><p>Ctrl+1…9: аккаунт по номеру. Ctrl+Tab и Ctrl+Shift+Tab: следующий и предыдущий. Ctrl+колесо: масштаб.<br>
-        Правый клик по аккаунту: изменить, усыпить, порядок, удалить.</p></div>
+      <div class="card"><p><kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd> аккаунт по номеру, <kbd>Ctrl</kbd>+<kbd>Tab</kbd> и <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Tab</kbd> следующий и предыдущий, <kbd>Ctrl</kbd>+колесо масштаб.</p>
+        <p>Правый клик по аккаунту: изменить, перезагрузить, усыпить, порядок, удалить.</p></div>
       <p class="hint">Gemspace ${esc(state.version || '')}. Внутри открывается обычная веб-версия Gem Space (web.gemspace.com), Gemspace её не изменяет.</p>
       <div class="row"><button class="btn primary" id="f-ok">Сохранить</button><button class="btn" id="f-cancel">Отмена</button></div>`;
     $('#f-ok').onclick = async () => {
@@ -190,7 +228,11 @@ async function openOverlay(kind, a) {
 async function closeOverlay(restore = true) {
   if (!state.accounts.length) { openOverlay('welcome'); return; }
   overlayKind = null;
-  $('#overlay').hidden = true;
+  const ov = $('#overlay');
+  ov.classList.add('closing');
+  await new Promise((r) => setTimeout(r, matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 150));
+  ov.classList.remove('closing');
+  ov.hidden = true;
   if (restore) await invoke('set_overlay', { open: false });
 }
 
@@ -206,6 +248,7 @@ window.addEventListener('keydown', (e) => {
   else if (e.key === 'Tab') key = e.shiftKey ? 'prev' : 'next';
   if (key && !overlayKind) { e.preventDefault(); invoke('hotkey', { key }); }
 });
+window.addEventListener('resize', moveIndicator);
 window.addEventListener('contextmenu', (e) => { if (!e.target.closest('input')) e.preventDefault(); });
 
 function apply(s) {

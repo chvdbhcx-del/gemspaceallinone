@@ -3,5 +3,21 @@
         <item name="colorPrimary">#3AA0FF</item>
         <item name="colorAccent">#3AA0FF</item>
         <item name="android:windowBackground">@color/bar</item>
+        <!-- Nunito everywhere: views, dialogs, menus -->
+        <item name="android:fontFamily">@font/nunito</item>
+        <item name="fontFamily">@font/nunito</item>
+        <item name="alertDialogTheme">@style/Theme.Gemspace.Dialog</item>
+    </style>
+
+    <style name="Theme.Gemspace.Dialog" parent="Theme.AppCompat.DayNight.Dialog.Alert">
+        <item name="colorAccent">#3AA0FF</item>
+        <item name="android:fontFamily">@font/nunito</item>
+        <item name="fontFamily">@font/nunito</item>
+        <item name="android:windowAnimationStyle">@style/Gemspace.DialogAnimation</item>
+    </style>
+
+    <style name="Gemspace.DialogAnimation">
+        <item name="android:windowEnterAnimation">@anim/dialog_in</item>
+        <item name="android:windowExitAnimation">@anim/dialog_out</item>
     </style>
 </resources>

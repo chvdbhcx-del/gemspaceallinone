@@ -8,6 +8,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
+import android.view.MotionEvent
+import android.view.animation.OvershootInterpolator
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
@@ -40,6 +42,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.content.res.ResourcesCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.webkit.ProfileStore
@@ -63,6 +66,15 @@ class MainActivity : AppCompatActivity() {
     private val unread = HashMap<String, Int>()
     private val attention = HashSet<String>()
     private var resumed = false
+
+    // what the bar and the page showed last time, so only real changes animate
+    private val shownUnread = HashMap<String, Int>()
+    private val shownTiles = HashSet<String>()
+    private var shownActive: String? = null
+    private var shownPage: String? = null
+
+    private val fontBold: Typeface? by lazy { ResourcesCompat.getFont(this, R.font.nunito_bold) }
+    private val fontHeavy: Typeface? by lazy { ResourcesCompat.getFont(this, R.font.nunito_extrabold) }
 
     private var fileCallback: ValueCallback<Array<Uri>>? = null
     private var pendingPermission: PermissionRequest? = null
@@ -177,7 +189,7 @@ class MainActivity : AppCompatActivity() {
             gravity = Gravity.CENTER
             setPadding(dp(32), dp(32), dp(32), dp(32))
             addView(TextView(context).apply {
-                text = "Gemspace"; textSize = 24f; setTypeface(typeface, Typeface.BOLD); gravity = Gravity.CENTER
+                text = "Gemspace"; textSize = 26f; typeface = fontHeavy; gravity = Gravity.CENTER
                 setTextColor(ContextCompat.getColor(context, R.color.fg))
             })
             addView(TextView(context).apply {
@@ -207,9 +219,18 @@ class MainActivity : AppCompatActivity() {
 
     // Every tile of the bar has the same geometry: TILE_W x TILE_H, a round AVATAR_SIZE icon centred at the top
     // and a one-line label at the bottom, so accounts and the + / settings buttons line up.
+    @SuppressLint("ClickableViewAccessibility")
     private fun tileFrame(desc: String) = FrameLayout(this).apply {
         layoutParams = LinearLayout.LayoutParams(dp(TILE_W), dp(TILE_H))
         contentDescription = desc
+        // press feedback; returning false keeps click and long press working
+        setOnTouchListener { v, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> v.animate().scaleX(0.92f).scaleY(0.92f).setDuration(90).start()
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> v.animate().scaleX(1f).scaleY(1f).setDuration(160).start()
+            }
+            false
+        }
     }
 
     private fun tileLabel(text: String, strong: Boolean) = TextView(this).apply {
@@ -220,6 +241,7 @@ class MainActivity : AppCompatActivity() {
         setPadding(dp(2), 0, dp(2), 0)
         ellipsize = android.text.TextUtils.TruncateAt.END
         setTextColor(ContextCompat.getColor(context, if (strong) R.color.fg else R.color.muted))
+        typeface = if (strong) fontHeavy else fontBold
     }
 
     private fun iconParams() =
@@ -256,6 +278,10 @@ class MainActivity : AppCompatActivity() {
                 // the ring goes around the avatar, so the avatar keeps its size and position
                 tile.addView(View(this).apply {
                     background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setStroke(dp(2), accent) }
+                    if (shownActive != a.id) {
+                        alpha = 0f; scaleX = 0.7f; scaleY = 0.7f
+                        animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(220).setInterpolator(OvershootInterpolator(1.6f)).start()
+                    }
                 }, FrameLayout.LayoutParams(dp(RING_SIZE), dp(RING_SIZE), Gravity.CENTER_HORIZONTAL or Gravity.TOP).apply {
                     topMargin = dp(AVATAR_TOP - (RING_SIZE - AVATAR_SIZE) / 2)
                 })
@@ -264,7 +290,7 @@ class MainActivity : AppCompatActivity() {
                 text = Store.initials(a.name)
                 textSize = 15f
                 setTextColor(Color.WHITE)
-                setTypeface(typeface, Typeface.BOLD)
+                typeface = fontHeavy
                 gravity = Gravity.CENTER
                 background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(a.color) }
                 alpha = if (views.containsKey(a.id) || active) 1f else 0.55f
@@ -278,10 +304,14 @@ class MainActivity : AppCompatActivity() {
                     text = if (n > 99) "99+" else n.toString()
                     textSize = 10f
                     setTextColor(Color.WHITE)
-                    setTypeface(typeface, Typeface.BOLD)
+                    typeface = fontHeavy
                     gravity = Gravity.CENTER
                     setPadding(dp(4), 0, dp(4), 0)
                     minWidth = dp(18)
+                    if (n > (shownUnread[a.id] ?: n)) {
+                        scaleX = 0.3f; scaleY = 0.3f
+                        animate().scaleX(1f).scaleY(1f).setDuration(320).setInterpolator(OvershootInterpolator(2.5f)).start()
+                    }
                     background = GradientDrawable().apply {
                         cornerRadius = dp(9).toFloat(); setColor(accent)
                         setStroke(dp(2), ContextCompat.getColor(context, R.color.bar))
@@ -301,11 +331,41 @@ class MainActivity : AppCompatActivity() {
                     topMargin = dp(AVATAR_TOP - 1)
                 })
             }
+            if (a.id !in shownTiles) {
+                tile.alpha = 0f
+                tile.translationX = -dp(12).toFloat()
+                tile.animate().alpha(1f).translationX(0f).setDuration(240).start()
+            }
             strip.addView(tile)
         }
         strip.addView(toolTile("+", "Добавить") { editAccount(null) })
-        welcome.visibility = if (store.accounts.isEmpty()) View.VISIBLE else View.GONE
-        for ((id, wv) in views) wv.visibility = if (id == store.active) View.VISIBLE else View.GONE
+        shownUnread.clear()
+        store.accounts.forEach { shownUnread[it.id] = unread[it.id] ?: 0 }
+        shownTiles.clear()
+        store.accounts.forEach { shownTiles += it.id }
+        shownActive = store.active
+        val showWelcome = store.accounts.isEmpty()
+        if (showWelcome && welcome.visibility != View.VISIBLE) {
+            welcome.alpha = 0f
+            welcome.animate().alpha(1f).setDuration(260).start()
+        }
+        welcome.visibility = if (showWelcome) View.VISIBLE else View.GONE
+        for ((id, wv) in views) {
+            if (id == store.active) {
+                if (shownPage != id || wv.visibility != View.VISIBLE) {
+                    // the newly opened account fades in over the previous one
+                    wv.alpha = 0f
+                    wv.visibility = View.VISIBLE
+                    wv.bringToFront()
+                    wv.animate().alpha(1f).setDuration(180).withEndAction {
+                        for ((other, v) in views) if (other != store.active) v.visibility = View.GONE
+                    }.start()
+                }
+            } else if (id != shownPage) {
+                wv.visibility = View.GONE
+            }
+        }
+        shownPage = store.active
         Notifier.updateKeepAlive(this, unread.values.sum())
     }
 
