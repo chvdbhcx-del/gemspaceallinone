@@ -15,6 +15,8 @@
     "allow-sleep-account",
     "allow-set-overlay",
     "allow-set-settings",
+    "allow-feed-open",
+    "allow-feed-clear",
     "allow-hotkey"
   ]
 }

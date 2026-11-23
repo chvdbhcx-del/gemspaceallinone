@@ -2,6 +2,7 @@
 //! Gem Space account (its own WebView2 data folder, so its own cookies and storage, and its own proxy).
 //! The Gem Space web app itself is loaded unmodified from https://web.gemspace.com/.
 
+mod feed;
 mod store;
 
 use std::collections::{HashMap, HashSet};
@@ -19,6 +20,7 @@ use tauri::{
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_opener::OpenerExt;
 
+use feed::{Feed, FeedItem};
 use store::{Account, Settings, Store};
 
 pub const GEM_URL: &str = "https://web.gemspace.com/";
@@ -38,8 +40,10 @@ struct Live {
     attention: HashSet<String>,
     /// loaded (awake) accounts, least recently used first
     lru: Vec<String>,
-    /// the rail covers the whole window (settings, account editor)
+    /// the rail covers the whole window (settings, account editor, feed)
     overlay: bool,
+    /// new messages of all accounts, from their notifications
+    feed: Feed,
 }
 
 struct AppState {
@@ -62,6 +66,7 @@ struct StateView {
     active: Option<String>,
     settings: Settings,
     total_unread: u32,
+    feed: Vec<FeedItem>,
     version: String,
 }
 
@@ -101,6 +106,7 @@ fn snapshot(app: &AppHandle) -> StateView {
         active: store.active.clone(),
         settings: store.settings.clone(),
         total_unread: total,
+        feed: live.feed.items(),
         version: app.package_info().version.to_string(),
     }
 }
@@ -195,7 +201,13 @@ fn create_account_webview(app: &AppHandle, account: &Account) -> tauri::Result<W
                 let changed = {
                     let st = app_title.state::<AppState>();
                     let mut live = st.live.lock().unwrap();
-                    live.unread.insert(id.to_string(), n) != Some(n)
+                    let before = live.unread.insert(id.to_string(), n);
+                    // everything read in Gem Space: the account's messages leave the feed. Only on a
+                    // drop to zero, so a page whose title shows no count never empties the feed.
+                    if n == 0 && before.unwrap_or(0) > 0 {
+                        live.feed.clear(Some(id));
+                    }
+                    before != Some(n)
                 };
                 if changed {
                     publish(&app_title);
@@ -424,6 +436,7 @@ async fn remove_account(app: AppHandle, id: String) -> Result<(), String> {
         let mut live = st.live.lock().unwrap();
         live.unread.remove(&id);
         live.attention.remove(&id);
+        live.feed.clear(Some(&id));
         if store.active.as_deref() == Some(id.as_str()) {
             store.active = None;
             store.accounts.first().map(|a| a.id.clone())
@@ -487,6 +500,33 @@ async fn sleep_account(app: AppHandle, id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Opens a feed row: switches to its account and clicks the page's notification, which in Gem Space
+/// opens the chat. The row leaves the feed.
+#[tauri::command]
+async fn feed_open(app: AppHandle, key: u64) -> Result<(), String> {
+    let item = app.state::<AppState>().live.lock().unwrap().feed.take(key);
+    let Some(item) = item else {
+        publish(&app);
+        return Ok(());
+    };
+    switch_to(&app, &item.account)?;
+    if !item.nid.is_empty() && item.nid.chars().all(|c| c.is_ascii_alphanumeric()) {
+        if let Some(wv) = app.get_webview(&label_of(&item.account)) {
+            let _ = wv.eval(format!("window.__gemspaceOpen && window.__gemspaceOpen('{}')", item.nid));
+        }
+    }
+    Ok(())
+}
+
+/// Empties the feed, or only one account's rows.
+#[tauri::command]
+async fn feed_clear(app: AppHandle, account: Option<String>) {
+    let changed = app.state::<AppState>().live.lock().unwrap().feed.clear(account.as_deref());
+    if changed {
+        publish(&app);
+    }
+}
+
 #[tauri::command]
 async fn set_overlay(app: AppHandle, open: bool) {
     app.state::<AppState>().live.lock().unwrap().overlay = open;
@@ -529,7 +569,7 @@ fn handle_hotkey(app: &AppHandle, key: &str) {
 // ---------- commands of the account webviews (https://web.gemspace.com, see capabilities/accounts.json) ----------
 
 #[tauri::command]
-async fn acc_notify(app: AppHandle, webview: Webview, title: String, body: String) {
+async fn acc_notify(app: AppHandle, webview: Webview, title: String, body: String, nid: Option<String>) {
     let Some(id) = id_of(webview.label()).map(str::to_string) else { return };
     let (account, settings, active) = {
         let st = app.state::<AppState>();
@@ -537,6 +577,15 @@ async fn acc_notify(app: AppHandle, webview: Webview, title: String, body: Strin
         (store.accounts.iter().find(|a| a.id == id).cloned(), store.settings.clone(), store.active.clone())
     };
     let Some(account) = account else { return };
+    let added = {
+        let st = app.state::<AppState>();
+        let mut live = st.live.lock().unwrap();
+        live.feed.push(&id, &title, &body, nid.as_deref().unwrap_or(""), feed::now_ms())
+    };
+    if !added {
+        return;
+    }
+    publish(&app);
     let focused = main_window(&app).and_then(|w| w.is_focused().ok()).unwrap_or(false);
     let visible = focused && active.as_deref() == Some(id.as_str());
     if visible {
@@ -582,6 +631,8 @@ pub fn run() {
             sleep_account,
             set_overlay,
             set_settings,
+            feed_open,
+            feed_clear,
             hotkey,
             acc_notify,
             acc_hotkey

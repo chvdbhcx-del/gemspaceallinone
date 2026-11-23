@@ -14,6 +14,20 @@
     active: 'a1',
     settings: { sleep_enabled: true, max_awake: 8, notifications: true, notify_preview: true, close_to_tray: true },
     total_unread: 19,
+    feed: (function () {
+      var t = Date.now();
+      var m = function (min) { return t - min * 60000; };
+      return [
+        { key: 9, account: 'a2', title: 'Денис Карпов', body: 'Добрый вечер! Когда будет возврат по заказу 2231?', time: m(0) },
+        { key: 8, account: 'a1', title: 'Ирина Морозова', body: 'Счёт получила, оплачу сегодня 👍', time: m(1) },
+        { key: 7, account: 'a3', title: 'Опт: заявки', body: 'Марк: Нужно 40 коробок к пятнице, успеете?', time: m(2) },
+        { key: 6, account: 'a2', title: 'Светлана', body: 'Не приходит код подтверждения, что делать?', time: m(6) },
+        { key: 5, account: 'a4', title: 'Ольга', body: 'Спасибо, всё пришло! Оставлю отзыв', time: m(9) },
+        { key: 4, account: 'a7', title: 'Склад, смена 2', body: 'Паллеты на утро собраны, ждём машину', time: m(14) },
+        { key: 3, account: 'a1', title: 'Кафе «Терраса»', body: 'Можно перенести доставку на среду?', time: m(23) },
+        { key: 2, account: 'a2', title: 'Павел', body: 'Фото брака прикрепил, посмотрите', time: m(31) },
+      ];
+    })(),
     version: '0.1.0',
   };
   var listeners = [];
