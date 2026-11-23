@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-feed-clear"
+description = "Enables the feed_clear command without any pre-configured scope."
+commands.allow = ["feed_clear"]
+
+[[permission]]
+identifier = "deny-feed-clear"
+description = "Denies the feed_clear command without any pre-configured scope."
+commands.deny = ["feed_clear"]

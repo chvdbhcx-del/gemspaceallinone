@@ -12,6 +12,8 @@ fn main() {
         "sleep_account",
         "set_overlay",
         "set_settings",
+        "feed_open",
+        "feed_clear",
         "hotkey",
         "acc_notify",
         "acc_hotkey",

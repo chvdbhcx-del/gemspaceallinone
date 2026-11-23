@@ -33,6 +33,8 @@ import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
+import android.widget.ImageView
+import android.widget.ScrollView
 import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.TextView
@@ -65,6 +67,10 @@ class MainActivity : AppCompatActivity() {
     private val views = LinkedHashMap<String, WebView>(16, 0.75f, true)
     private val unread = HashMap<String, Int>()
     private val attention = HashSet<String>()
+    /** new messages of all accounts, from their notifications (Feed.kt) */
+    private val feed = Feed()
+    private lateinit var feedSlot: FrameLayout
+    private var shownFeed = 0
     private var resumed = false
 
     // what the bar and the page showed last time, so only real changes animate
@@ -179,6 +185,8 @@ class MainActivity : AppCompatActivity() {
             setFadingEdgeLength(dp(24))
             addView(strip)
         }
+        feedSlot = FrameLayout(this)
+        bar.addView(feedSlot, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         bar.addView(scroll, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         bar.addView(toolTile("⚙", "Настройки") { openSettings() })
         root.addView(bar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -265,7 +273,135 @@ class MainActivity : AppCompatActivity() {
         setOnClickListener { onClick() }
     }
 
+    /** The feed button left of the accounts, shaped like an account tile, with the count of new messages. */
+    private fun renderFeedTile() {
+        feedSlot.removeAllViews()
+        val accent = 0xFF3AA0FF.toInt()
+        val n = feed.size
+        val tile = tileFrame("Лента").apply { setOnClickListener { openFeed() } }
+        tile.addView(ImageView(this).apply {
+            setImageResource(R.drawable.ic_feed)
+            setColorFilter(if (n > 0) accent else ContextCompat.getColor(context, R.color.muted))
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            setPadding(dp(11), dp(11), dp(11), dp(11))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setStroke(dp(1), ContextCompat.getColor(context, R.color.line))
+            }
+        }, iconParams())
+        tile.addView(tileLabel("Лента", false), labelParams())
+        if (n > 0) {
+            val avatarRight = (TILE_W + AVATAR_SIZE) / 2
+            tile.addView(TextView(this).apply {
+                text = if (n > 99) "99+" else n.toString()
+                textSize = 10f
+                setTextColor(Color.WHITE)
+                typeface = fontHeavy
+                gravity = Gravity.CENTER
+                setPadding(dp(4), 0, dp(4), 0)
+                minWidth = dp(18)
+                if (n > shownFeed) {
+                    scaleX = 0.3f; scaleY = 0.3f
+                    animate().scaleX(1f).scaleY(1f).setDuration(320).setInterpolator(OvershootInterpolator(2.5f)).start()
+                }
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(9).toFloat(); setColor(accent)
+                    setStroke(dp(2), ContextCompat.getColor(context, R.color.bar))
+                }
+            }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(18), Gravity.START or Gravity.TOP).apply {
+                leftMargin = dp(avatarRight - 12)
+                topMargin = dp(AVATAR_TOP - 4)
+            })
+        }
+        shownFeed = n
+        feedSlot.addView(tile)
+    }
+
+    private fun feedTime(ms: Long): String {
+        val today = android.text.format.DateUtils.isToday(ms)
+        val f = if (today) "HH:mm" else "d MMM, HH:mm"
+        return java.text.SimpleDateFormat(f, java.util.Locale.forLanguageTag("ru")).format(java.util.Date(ms))
+    }
+
+    /** The shared feed: new messages of every account, newest first. A row opens the chat in its account. */
+    private fun openFeed() {
+        val items = feed.items().filter { store.find(it.account) != null }
+        val fg = ContextCompat.getColor(this, R.color.fg)
+        val muted = ContextCompat.getColor(this, R.color.muted)
+        val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(8), dp(4), dp(8), dp(8)) }
+        lateinit var dialog: AlertDialog
+        if (items.isEmpty()) {
+            list.addView(TextView(this).apply {
+                text = "Новых сообщений нет. Здесь появятся сообщения всех аккаунтов, как только придут."
+                setTextColor(muted); setPadding(dp(16), dp(12), dp(16), dp(12))
+            })
+        }
+        for (item in items) {
+            val a = store.find(item.account) ?: continue
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(14).toFloat()
+                    setColor(ContextCompat.getColor(context, R.color.page))
+                    setStroke(dp(1), ContextCompat.getColor(context, R.color.line))
+                }
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    dialog.dismiss()
+                    openFeedItem(item.key)
+                }
+            }
+            row.addView(TextView(this).apply {
+                text = Store.initials(a.name); textSize = 14f; setTextColor(Color.WHITE); typeface = fontHeavy
+                gravity = Gravity.CENTER
+                background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(a.color) }
+            }, LinearLayout.LayoutParams(dp(40), dp(40)).apply { marginEnd = dp(12) })
+            val texts = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            top.addView(TextView(this).apply {
+                text = a.name; textSize = 12f; typeface = fontHeavy; setTextColor(0xFF3AA0FF.toInt()); maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            top.addView(TextView(this).apply { text = feedTime(item.time); textSize = 12f; setTextColor(muted) })
+            texts.addView(top)
+            texts.addView(TextView(this).apply {
+                text = item.title.ifEmpty { a.name }; textSize = 15f; typeface = fontHeavy; setTextColor(fg); maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            })
+            if (item.body.isNotEmpty()) texts.addView(TextView(this).apply {
+                text = item.body; textSize = 14f; setTextColor(muted); maxLines = 2
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            })
+            row.addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            list.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(6)
+            })
+        }
+        list.addView(TextView(this).apply {
+            text = "Лента собирается из уведомлений аккаунтов, пока Gemspace работает. Спящие аккаунты сюда не пишут. Ответить можно в самом чате."
+            textSize = 12f; setTextColor(muted); setPadding(dp(8), dp(6), dp(8), 0)
+        })
+        val b = AlertDialog.Builder(this)
+            .setTitle("Лента")
+            .setView(ScrollView(this).apply { addView(list) })
+            .setNegativeButton("Закрыть", null)
+        if (items.isNotEmpty()) b.setNeutralButton("Очистить") { _, _ -> feed.clear(null); render() }
+        dialog = b.show()
+    }
+
+    private fun openFeedItem(key: Long) {
+        val item = feed.take(key) ?: return
+        if (store.find(item.account) == null) { render(); return }
+        switchTo(item.account)
+        if (item.nid.isNotEmpty() && item.nid.all { it.isLetterOrDigit() }) {
+            views[item.account]?.evaluateJavascript("window.__gemspaceOpen && window.__gemspaceOpen('${item.nid}')", null)
+        }
+    }
+
     private fun render() {
+        renderFeedTile()
         strip.removeAllViews()
         val accent = 0xFF3AA0FF.toInt()
         for (a in store.accounts) {
@@ -561,6 +697,9 @@ class MainActivity : AppCompatActivity() {
             override fun onReceivedTitle(view: WebView, title: String?) {
                 val n = Store.unreadFromTitle(title)
                 if (unread[id] != n) {
+                    // everything read in Gem Space: the account's messages leave the feed. Only on a drop
+                    // to zero, so a page whose title shows no count never empties the feed.
+                    if (n == 0 && (unread[id] ?: 0) > 0) feed.clear(id)
                     unread[id] = n
                     render()
                 }
@@ -611,12 +750,12 @@ class MainActivity : AppCompatActivity() {
         val o = try { JSONObject(data ?: return) } catch (e: Exception) { return }
         if (o.optString("t") != "notify") return
         val account = store.find(id) ?: return
+        val added = feed.push(id, o.optString("title"), o.optString("body"), o.optString("nid"), System.currentTimeMillis())
+        if (!added) return
         val visible = resumed && store.active == id
+        if (store.active != id) attention += id
+        render()
         if (visible) return
-        if (store.active != id) {
-            attention += id
-            render()
-        }
         if (!store.settings.notifications) return
         val title = o.optString("title").take(120)
         val body = if (store.settings.notifyPreview) o.optString("body").take(300) else "Новое сообщение"
@@ -643,6 +782,7 @@ class MainActivity : AppCompatActivity() {
         store.accounts.remove(a)
         unread.remove(a.id)
         attention.remove(a.id)
+        feed.clear(a.id)
         Notifier.cancel(this, a.id)
         if (multiProfile) {
             // the profile can be deleted only once no WebView uses it; the destroy above is processed on the next frames

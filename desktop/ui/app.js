@@ -7,7 +7,10 @@ const { Menu } = window.__TAURI__.menu;
 
 const COLORS = ['#3aa0ff', '#26a69a', '#7e57c2', '#ef5350', '#ffa726', '#66bb6a', '#ec407a', '#8d6e63'];
 let state = { accounts: [], active: null, settings: {}, total_unread: 0 };
-let overlayKind = null; // null | 'add' | 'edit' | 'settings' | 'welcome'
+let overlayKind = null; // null | 'add' | 'edit' | 'settings' | 'welcome' | 'feed'
+let feedFilter = null; // account id or null for all
+const feedSeen = new Set(); // feed rows already drawn, so only new ones slide in
+let feedShown = 0;
 
 const $ = (sel) => document.querySelector(sel);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -33,7 +36,10 @@ function renderRail() {
       b = document.createElement('button');
       b.dataset.id = a.id;
       b.innerHTML = '<span class="ava"></span><span class="lbl"></span>';
-      b.onclick = () => invoke('switch_account', { id: b.dataset.id }).catch(alertErr);
+      b.onclick = () => {
+        if (overlayKind === 'feed') closeOverlay(false); // switching an account hides the feed
+        invoke('switch_account', { id: b.dataset.id }).catch(alertErr);
+      };
       b.oncontextmenu = (e) => {
         e.preventDefault();
         const idx = state.accounts.findIndex((x) => x.id === b.dataset.id);
@@ -64,6 +70,64 @@ function renderRail() {
     if (a.pinned) b.insertAdjacentHTML('beforeend', `<span class="pin" title="не усыпляется">${PIN_SVG}</span>`);
   });
   moveIndicator();
+  renderFeedButton();
+}
+
+function renderFeedButton() {
+  const b = $('#feed');
+  const n = (state.feed || []).length;
+  b.classList.toggle('active', overlayKind === 'feed');
+  b.querySelectorAll('.badge').forEach((x) => x.remove());
+  if (n > 0) {
+    const badge = document.createElement('span');
+    badge.className = 'badge' + (n > feedShown ? ' pop' : '');
+    badge.textContent = n > 99 ? '99+' : n;
+    b.appendChild(badge);
+  }
+  b.setAttribute('aria-label', 'Лента' + (n ? `, новых: ${n}` : ''));
+  feedShown = n;
+}
+
+function when(ms) {
+  const d = new Date(ms);
+  const now = new Date();
+  const hm = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  if (d.toDateString() === now.toDateString()) return hm;
+  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }) + ', ' + hm;
+}
+
+// The shared feed: new messages of every account, newest first. Read only: a row opens the chat in its account.
+function renderFeed() {
+  const box = $('#feed-list');
+  if (!box) return;
+  const accounts = new Map(state.accounts.map((a) => [a.id, a]));
+  const items = (state.feed || []).filter((i) => accounts.has(i.account));
+  if (feedFilter && !items.some((i) => i.account === feedFilter)) feedFilter = null;
+  const present = state.accounts.filter((a) => items.some((i) => i.account === a.id));
+  $('#feed-chips').innerHTML = items.length ? [`<button class="chip${feedFilter ? '' : ' on'}" data-a="">Все <b>${items.length}</b></button>`]
+    .concat(present.map((a) => `<button class="chip${feedFilter === a.id ? ' on' : ''}" data-a="${esc(a.id)}"><i style="background:${esc(a.color)}"></i>${esc(a.name)} <b>${items.filter((i) => i.account === a.id).length}</b></button>`)).join('') : '';
+  $('#feed-chips').querySelectorAll('.chip').forEach((c) => { c.onclick = () => { feedFilter = c.dataset.a || null; renderFeed(); }; });
+  const rows = items.filter((i) => !feedFilter || i.account === feedFilter);
+  $('#feed-clear').hidden = !items.length;
+  if (!rows.length) {
+    box.innerHTML = `<div class="feed-empty"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 12h-4a3 3 0 0 1-6 0H5V5h14z"/></svg>
+      <b>Новых сообщений нет</b><span>Здесь появятся сообщения всех аккаунтов, как только придут.</span></div>`;
+    return;
+  }
+  box.innerHTML = rows.map((i) => {
+    const a = accounts.get(i.account);
+    const fresh = !feedSeen.has(i.key);
+    return `<button class="feed-row${fresh ? ' new' : ''}" data-key="${i.key}">
+      <span class="ava" style="background:${esc(a.color)}">${esc(initials(a.name))}</span>
+      <span class="fr-main"><span class="fr-top"><span class="fr-acc">${esc(a.name)}</span><span class="fr-time">${esc(when(i.time))}</span></span>
+      <span class="fr-title">${esc(i.title || a.name)}</span>${i.body ? `<span class="fr-body">${esc(i.body)}</span>` : ''}</span></button>`;
+  }).join('');
+  rows.forEach((i) => feedSeen.add(i.key));
+  box.querySelectorAll('.feed-row').forEach((r) => {
+    r.onclick = async () => {
+      try { await invoke('feed_open', { key: Number(r.dataset.key) }); closeOverlay(false); } catch (e) { alertErr(e); }
+    };
+  });
 }
 
 function moveIndicator() {
@@ -139,6 +203,7 @@ async function openOverlay(kind, a) {
   overlayKind = kind;
   await invoke('set_overlay', { open: true });
   $('#overlay').hidden = false;
+  $('#overlay').classList.toggle('side', kind === 'feed');
   const body = $('#ov-body');
   $('#ov-close').hidden = kind === 'welcome';
   if (kind === 'welcome') {
@@ -185,6 +250,18 @@ async function openOverlay(kind, a) {
     $('#f-ok').onclick = async () => {
       try { await invoke('remove_account', { id: a.id }); closeOverlay(); } catch (e) { alertErr(e); }
     };
+  } else if (kind === 'feed') {
+    $('#ov-title').textContent = 'Лента';
+    body.innerHTML = `<p class="hint lead">Новые сообщения всех аккаунтов. Клик откроет чат в его аккаунте, ответить можно там.</p>
+      <div class="feed-bar"><div id="feed-chips" class="chips"></div><button class="btn small" id="feed-clear">Очистить</button></div>
+      <div id="feed-list"></div>
+      <p class="hint">Лента собирается из уведомлений аккаунтов, пока Gemspace запущен. Спящие аккаунты сюда не пишут, важные отметьте «Не усыплять».
+        Сообщения аккаунта уходят из ленты, когда в нём всё прочитано.</p>`;
+    feedSeen.clear();
+    (state.feed || []).forEach((i) => feedSeen.add(i.key));
+    $('#feed-clear').onclick = () => invoke('feed_clear', { account: feedFilter });
+    renderFeed();
+    renderFeedButton();
   } else if (kind === 'settings') {
     const s = state.settings;
     $('#ov-title').textContent = 'Настройки';
@@ -228,6 +305,7 @@ async function openOverlay(kind, a) {
 async function closeOverlay(restore = true) {
   if (!state.accounts.length) { openOverlay('welcome'); return; }
   overlayKind = null;
+  renderFeedButton();
   const ov = $('#overlay');
   ov.classList.add('closing');
   await new Promise((r) => setTimeout(r, matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 150));
@@ -239,6 +317,7 @@ async function closeOverlay(restore = true) {
 $('#ov-close').onclick = () => closeOverlay();
 $('#add').onclick = () => openOverlay('add');
 $('#gear').onclick = () => openOverlay('settings');
+$('#feed').onclick = () => (overlayKind === 'feed' ? closeOverlay() : openOverlay('feed'));
 
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && overlayKind && overlayKind !== 'welcome') { closeOverlay(); return; }
@@ -254,6 +333,7 @@ window.addEventListener('contextmenu', (e) => { if (!e.target.closest('input')) 
 function apply(s) {
   state = s;
   renderRail();
+  if (overlayKind === 'feed') renderFeed();
   if (!state.accounts.length && overlayKind !== 'add' && overlayKind !== 'welcome') openOverlay('welcome');
 }
 

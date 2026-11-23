@@ -84,10 +84,19 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 #gear svg { width: 20px; height: 20px; fill: currentColor; transition: transform 400ms var(--ease); }
 #gear:hover svg { transform: rotate(60deg); }
 .spacer { flex: 1; }
+/* the feed button sits on top of the rail, shaped like an account tile */
+.feed-tile { animation: none; }
+.feed-tile .ava { background: var(--card); color: var(--muted); border: 1px solid var(--line); transition: color var(--fast) ease, border-radius var(--mid) var(--ease), transform var(--mid) var(--ease); }
+.feed-tile .ava svg { width: 20px; height: 20px; fill: currentColor; }
+.feed-tile:hover .ava, .feed-tile.active .ava { color: var(--accent); }
+.sep { width: 36px; height: 1px; background: var(--line); margin: 2px 0 4px; flex: none; }
 
 /* ---------- overlays: add, edit, remove, settings, welcome ---------- */
 #overlay { position: fixed; inset: 0; background: var(--bg); display: flex; justify-content: center; overflow-y: auto; user-select: text;
   animation: fade var(--mid) ease both; }
+/* the feed opens next to the rail, so the accounts stay one click away */
+#overlay.side { left: 76px; border-left: 1px solid var(--line); }
+#overlay.side .sheet { width: min(720px, 100%); }
 #overlay.closing { animation: fade-out 160ms ease both; }
 .sheet { width: min(560px, 100%); padding: 32px 24px 40px; }
 .sheet > * { animation: rise 320ms var(--ease) both; }
@@ -131,6 +140,33 @@ input[type=text]:focus, input[type=number]:focus { outline: none; border-color: 
 .card p { margin: 12px 0; }
 h2 { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 22px 0 0; }
 kbd { font: 700 12px/1 var(--font); padding: 2px 6px; border-radius: 5px; border: 1px solid var(--line); background: var(--bg); }
+/* ---------- feed ---------- */
+.lead { margin: 0 0 4px; font-size: 13px; }
+.btn.small { padding: 6px 12px; font-size: 13px; }
+.feed-bar { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; margin: 14px 0 6px; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 16px; border: 1px solid var(--line); background: var(--card);
+  font-size: 13px; font-weight: 700; color: var(--muted); transition: background var(--fast) ease, color var(--fast) ease, border-color var(--fast) ease; }
+.chip i { width: 8px; height: 8px; border-radius: 50%; }
+.chip b { font-weight: 800; color: var(--fg); font-variant-numeric: tabular-nums; }
+.chip:hover { color: var(--fg); }
+.chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--fg); }
+#feed-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.feed-row { display: flex; gap: 12px; align-items: flex-start; width: 100%; text-align: left; padding: 10px 12px; border-radius: 14px;
+  border: 1px solid var(--line); background: var(--card); transition: background var(--fast) ease, transform var(--fast) var(--ease), border-color var(--fast) ease; }
+.feed-row:hover { border-color: var(--accent); }
+.feed-row:active { transform: scale(.985); }
+.feed-row.new { animation: rise 320ms var(--ease) both; }
+.feed-row .ava { width: 40px; height: 40px; font-size: 14px; border-radius: 50%; }
+.fr-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.fr-top { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+.fr-acc { font-weight: 800; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fr-time { color: var(--muted); font-weight: 600; flex: none; font-variant-numeric: tabular-nums; }
+.fr-title { font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fr-body { color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.feed-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 40px 0 24px; color: var(--muted); text-align: center; }
+.feed-empty svg { width: 40px; height: 40px; fill: currentColor; opacity: .6; margin-bottom: 6px; }
+.feed-empty b { color: var(--fg); font-size: 16px; }
 .empty { text-align: center; padding: 56px 0 10px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .empty img { width: 84px; height: 84px; margin-bottom: 10px; animation: float 3.2s ease-in-out infinite; }
 .empty h1 { font-size: 26px; font-weight: 900; margin: 0; }
