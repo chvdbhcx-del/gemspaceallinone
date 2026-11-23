@@ -66,3 +66,13 @@ svg { fill: currentColor; }
 .phone .b { max-width:84%; font-size:15px; }
 .phone .input { padding:8px 8px 10px; gap:4px; } .phone .field { height:46px; padding-left:16px; }
 .phone .demo { bottom:70px; }
+/* light theme of the stand-in, as Gem Space shows when its light theme is chosen */
+@media (prefers-color-scheme: light) {
+  :root { --bg:#ffffff; --side:#ffffff; --nav:#f6f5f8; --fg:#18181b; --muted:#76757b; --line:#e6e5ea; --sel:#f1f0f4; --them:#ffffff; --me:#ffe3e1; --pill:#f1f0f4; }
+  .nv { color:#3a393e; } .ic { color:#3a393e; } .prev b { color:#3a393e; } .cnt.mute { background:#b9b8be; }
+  .msgs { background-color:#efedf2; }
+  .day { background:#ffffffcc; color:#3a393e; }
+  .b.them { box-shadow:0 1px 1px rgba(0,0,0,.06); }
+  .b i { color:#8e8d93; } .b.me i { color:#b0706c; } .file small { color:#b0706c; }
+  .demo { color:#a2a1a7; }
+}
