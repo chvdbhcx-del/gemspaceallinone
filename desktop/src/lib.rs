@@ -83,6 +83,26 @@ pub(crate) struct Live {
     chats: HashMap<String, Vec<ChatRow>>,
     /// broadcast messages waiting for their page's answer: token -> (account, reply)
     waiters: HashMap<String, (String, tokio::sync::oneshot::Sender<(bool, String)>)>,
+    /// sign-in report: what the pages of not yet signed-in accounts load and how it ends (see diag())
+    diag: std::collections::VecDeque<String>,
+}
+
+/// Adds a line to the sign-in report (Settings, "Отчёт о входе"). Addresses only, never message text.
+fn diag(app: &AppHandle, id: &str, line: &str) {
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0) % 86_400;
+    let line: String = line.chars().take(600).collect();
+    let row = format!("{:02}:{:02}:{:02} [{id}] {line}", secs / 3600, secs / 60 % 60, secs % 60);
+    let st = app.state::<AppState>();
+    let mut live = st.live.lock().unwrap();
+    live.diag.push_back(row);
+    while live.diag.len() > 5000 {
+        live.diag.pop_front();
+    }
+}
+
+/// An address without its query and fragment (they may carry sign-in tokens).
+fn bare_url(url: &tauri::Url) -> String {
+    format!("{}{}", url.origin().ascii_serialization(), url.path())
 }
 
 /// One row of an account's chat list, as its page shows it (shared/chats.js).
@@ -268,6 +288,12 @@ fn create_account_webview(app: &AppHandle, account: &Account) -> tauri::Result<W
     let app_title = app.clone();
     let app_window = app.clone();
     let app_load = app.clone();
+    let app_nav = app.clone();
+    let app_perm = app.clone();
+    let id_nav = account.id.clone();
+    let id_win = account.id.clone();
+    let id_load = account.id.clone();
+    let id_perm = account.id.clone();
     let mut builder = WebviewBuilder::new(label_of(&account.id), WebviewUrl::External(GEM_URL.parse().unwrap()))
         .data_directory(dir)
         .initialization_script(INJECT_JS)
@@ -292,22 +318,31 @@ fn create_account_webview(app: &AppHandle, account: &Account) -> tauri::Result<W
                 }
             }
         })
+        .on_navigation(move |url| {
+            diag(&app_nav, &id_nav, &format!("navigate {}", bare_url(url)));
+            true
+        })
         .on_new_window(move |url, _features| {
+            diag(&app_window, &id_win, &format!("new window {}", bare_url(&url)));
             // links from chats open in the system browser, never inside the account
             open_external(&app_window, url.as_str());
             NewWindowResponse::Deny
         })
         .on_page_load(move |_wv, payload| {
+            let ev = if payload.event() == PageLoadEvent::Finished { "loaded" } else { "loading" };
+            diag(&app_load, &id_load, &format!("page {ev} {}", bare_url(payload.url())));
             if payload.event() == PageLoadEvent::Finished {
                 publish(&app_load);
             }
         })
-        .on_permission_request(|_wv, kind| match kind {
-            // calls
-            PermissionKind::Microphone | PermissionKind::Camera => PermissionResponse::Allow,
-            // web notifications are rerouted by inject.js; the native ones would come without the account name
-            PermissionKind::Notifications => PermissionResponse::Deny,
-            _ => PermissionResponse::Default,
+        .on_permission_request(move |_wv, kind| {
+            diag(&app_perm, &id_perm, &format!("permission {kind:?}"));
+            match kind {
+                // calls; notifications as in a browser where they were allowed (Gem Space's sign-in may
+                // ask for them). Once signed in, inject.js reroutes the page's notifications to Hovi Space.
+                PermissionKind::Microphone | PermissionKind::Camera | PermissionKind::Notifications => PermissionResponse::Allow,
+                _ => PermissionResponse::Default,
+            }
         });
     if let Some(proxy) = account.proxy.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
         match store::parse_proxy(proxy) {
@@ -326,11 +361,38 @@ fn create_account_webview(app: &AppHandle, account: &Account) -> tauri::Result<W
         LogicalSize::new((size.width - rail_w).max(1.0), size.height),
     )?;
     let _ = wv.hide();
+    #[cfg(windows)]
+    no_tracking_prevention(app, &wv, &account.id);
     let z = ui_scale(app);
     if (z - 1.0).abs() > f64::EPSILON {
         let _ = wv.set_zoom(z);
     }
     Ok(wv)
+}
+
+/// WebView2 is Edge and comes with Edge's tracking prevention, which blocks some storage of the page;
+/// Chrome, where Gem Space's sign-in works, has none. So the account pages run without it, as in Chrome.
+#[cfg(windows)]
+fn no_tracking_prevention(app: &AppHandle, wv: &Webview, id: &str) {
+    let app = app.clone();
+    let id = id.to_string();
+    let _ = wv.with_webview(move |pw| {
+        use webview2_com::Microsoft::Web::WebView2::Win32::{
+            ICoreWebView2Profile3, ICoreWebView2_13, COREWEBVIEW2_TRACKING_PREVENTION_LEVEL_NONE,
+        };
+        use windows_core::Interface;
+        let res = unsafe {
+            (|| -> windows_core::Result<()> {
+                let core = pw.controller().CoreWebView2()?;
+                let profile = core.cast::<ICoreWebView2_13>()?.Profile()?;
+                profile.cast::<ICoreWebView2Profile3>()?.SetPreferredTrackingPreventionLevel(COREWEBVIEW2_TRACKING_PREVENTION_LEVEL_NONE)
+            })()
+        };
+        match res {
+            Ok(()) => diag(&app, &id, "tracking prevention: off"),
+            Err(e) => diag(&app, &id, &format!("tracking prevention: could not turn off ({e})")),
+        }
+    });
 }
 
 /// Makes sure the account is loaded and marks it as just used; then puts accounts over the limit to sleep.
@@ -940,6 +1002,49 @@ async fn acc_chats(app: AppHandle, webview: Webview, chats: Vec<ChatRow>) {
     }
 }
 
+/// Lines of the sign-in report from a page that is not signed in yet (inject.js).
+#[tauri::command]
+async fn acc_log(app: AppHandle, webview: Webview, lines: Vec<String>) {
+    let Some(id) = id_of(webview.label()).map(str::to_string) else { return };
+    for line in lines.iter().take(200) {
+        diag(&app, &id, line);
+    }
+}
+
+/// Saves the sign-in report to a text file the user picks, to send it for a look.
+#[tauri::command]
+async fn login_report(app: AppHandle) -> Result<Option<String>, String> {
+    let Some(path) = app
+        .dialog()
+        .file()
+        .set_title("Сохранить отчёт о входе")
+        .set_file_name(format!("Hovi Space вход {}.txt", chrono_day()))
+        .add_filter("Текст", &["txt"])
+        .blocking_save_file()
+    else {
+        return Ok(None);
+    };
+    let path = path.into_path().map_err(|e| e.to_string())?;
+    let names: Vec<String> = {
+        let st = app.state::<AppState>();
+        let store = st.store.lock().unwrap();
+        store.accounts.iter().map(|a| format!("[{}] {}{}", a.id, a.name, if a.proxy.is_some() { " (прокси)" } else { "" })).collect()
+    };
+    let mut text = format!(
+        "Hovi Space {} · {} · WebView2 {}\nВремя в отчёте UTC.\n{}\n\n",
+        app.package_info().version,
+        std::env::consts::OS,
+        tauri::webview_version().unwrap_or_default(),
+        names.join("\n")
+    );
+    for line in app.state::<AppState>().live.lock().unwrap().diag.iter() {
+        text.push_str(line);
+        text.push('\n');
+    }
+    std::fs::write(&path, text).map_err(|e| format!("Не удалось записать файл: {e}"))?;
+    Ok(Some(path.display().to_string()))
+}
+
 #[tauri::command]
 async fn acc_hotkey(app: AppHandle, key: String) {
     handle_hotkey(&app, &key);
@@ -978,7 +1083,9 @@ pub fn run() {
             backup_export,
             backup_import,
             broadcast_send,
-            acc_sent
+            acc_sent,
+            acc_log,
+            login_report
         ])
         .setup(|app| {
             let handle = app.handle().clone();

@@ -22,6 +22,7 @@
     "allow-set-labels",
     "allow-backup-export",
     "allow-backup-import",
+    "allow-login-report",
     "allow-broadcast-send",
     "allow-check-update",
     "allow-install-update",
