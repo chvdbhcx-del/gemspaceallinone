@@ -89,6 +89,12 @@
   window.__gemspaceSent = function (r) { invoke('acc_sent', { token: String(r.token || ''), ok: !!r.ok, error: String(r.error || '') }); };
 
   window.addEventListener('keydown', function (e) {
+    // F12 or Ctrl+Shift+I: developer tools of this account, to see why something does not load
+    if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && !e.altKey && (e.key === 'I' || e.key === 'i'))) {
+      e.preventDefault();
+      invoke('acc_hotkey', { key: 'devtools' });
+      return;
+    }
     if (!e.ctrlKey || e.altKey || e.metaKey) return;
     var key = null;
     if (!e.shiftKey && e.key >= '1' && e.key <= '9') key = e.key;
