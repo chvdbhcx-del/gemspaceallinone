@@ -997,7 +997,7 @@ pub fn run() {
             }
             let size = window.inner_size()?.to_logical::<f64>(window.scale_factor()?);
             let rail = window.add_child(
-                WebviewBuilder::new(RAIL, WebviewUrl::App("index.html".into())),
+                WebviewBuilder::new(RAIL, WebviewUrl::App("index.html".into())).devtools(false),
                 LogicalPosition::new(0.0, 0.0),
                 LogicalSize::new(rail_width(&handle), size.height),
             )?;

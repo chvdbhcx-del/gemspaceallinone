@@ -699,6 +699,8 @@ async function setPanel(open) {
 
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && overlayKind && overlayKind !== 'welcome') { closeOverlay(); return; }
+  // F12 / Ctrl+Shift+I here too open the developer tools of the open account's page, not of this rail
+  if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && !e.altKey && e.code === 'KeyI')) { e.preventDefault(); invoke('hotkey', { key: 'devtools' }); return; }
   if (!e.ctrlKey || e.altKey) return;
   let key = null;
   if (!e.shiftKey && e.key >= '1' && e.key <= '9') key = e.key;

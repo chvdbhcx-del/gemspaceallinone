@@ -99,7 +99,7 @@
 
   window.addEventListener('keydown', function (e) {
     // F12 or Ctrl+Shift+I: developer tools of this account, to see why something does not load
-    if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && !e.altKey && (e.key === 'I' || e.key === 'i'))) {
+    if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && !e.altKey && e.code === 'KeyI')) {
       e.preventDefault();
       invoke('acc_hotkey', { key: 'devtools' });
       return;
