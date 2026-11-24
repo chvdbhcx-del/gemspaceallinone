@@ -261,22 +261,6 @@ fn open_external(app: &AppHandle, url: &str) {
     }
 }
 
-/// Windows the Gem Space page opens while signing in: its own pages, Telegram's login and captcha checks.
-/// They must stay inside the account (same session and proxy, `window.opener` kept), or the page waits forever.
-fn is_sign_in_window(url: &url::Url) -> bool {
-    if url.scheme() != "https" {
-        return false;
-    }
-    let Some(host) = url.host_str() else { return false };
-    let on = |domain: &str| host == domain || host.ends_with(&format!(".{domain}"));
-    on("gemspace.com")
-        || host == "oauth.telegram.org"
-        || on("recaptcha.net")
-        || (host == "www.google.com" && url.path().starts_with("/recaptcha"))
-        || on("hcaptcha.com")
-        || host == "challenges.cloudflare.com"
-}
-
 /// Creates the webview of an account (wakes it up). Must not run on the main thread: add_child waits for it.
 fn create_account_webview(app: &AppHandle, account: &Account) -> tauri::Result<Webview> {
     let window = main_window(app).ok_or(tauri::Error::WindowNotFound)?;
@@ -309,11 +293,7 @@ fn create_account_webview(app: &AppHandle, account: &Account) -> tauri::Result<W
             }
         })
         .on_new_window(move |url, _features| {
-            // sign-in windows (Telegram login, captcha) open as a small window of this account, with its
-            // cookies and proxy, so the page gets their answer; links from chats open in the system browser
-            if is_sign_in_window(&url) {
-                return NewWindowResponse::Allow;
-            }
+            // links from chats open in the system browser, never inside the account
             open_external(&app_window, url.as_str());
             NewWindowResponse::Deny
         })
@@ -1103,19 +1083,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_sign_in_window, unread_from_title};
-
-    #[test]
-    fn sign_in_windows_stay_inside() {
-        let ok = |u: &str| is_sign_in_window(&u.parse().unwrap());
-        assert!(ok("https://oauth.telegram.org/auth?bot_id=1&origin=https%3A%2F%2Fweb.gemspace.com"));
-        assert!(ok("https://web.gemspace.com/login"));
-        assert!(ok("https://www.google.com/recaptcha/api2/anchor"));
-        assert!(!ok("https://t.me/somebody"));
-        assert!(!ok("https://www.google.com/search?q=1"));
-        assert!(!ok("https://evilgemspace.com/"));
-        assert!(!ok("http://web.gemspace.com/"));
-    }
+    use super::unread_from_title;
 
     #[test]
     fn unread_counts() {
