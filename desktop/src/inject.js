@@ -1,5 +1,5 @@
 // Hovi Space: runs in every account webview before the Gem Space page. It does not read or change
-// the page: it only reroutes web notifications to Hovi Space (so they carry the account name, work
+// the page (until sign-in it only watches its requests for the sign-in report): it only reroutes web notifications to Hovi Space (so they carry the account name, work
 // for hidden accounts and fill the shared feed) and forwards the account hotkeys (Ctrl+1..9, Ctrl+Tab).
 (function () {
   if (window.__gemspace) return;
@@ -35,9 +35,133 @@
   // (Telegram bot, QR) must see the real Notification and permission APIs, not ours. shared/chats.js calls
   // __gemspaceInstall once the chat list shows (signed in) and remembers it for this account.
   var installed = false;
+
+  // Sign-in report (Settings, "Отчёт о входе"): until the account is signed in, which requests the page
+  // makes and how they end, so a sign-in that hangs here but not in a browser can be compared. Addresses
+  // without query (it may carry tokens), statuses and errors; no headers, no successful bodies, nothing
+  // after sign-in. It only watches: every call goes on exactly as without it.
+  var diagOn = false;
+  var diagBuf = [];
+  var t0 = Date.now();
+  function bare(u) {
+    try { var x = new URL(String(u), location.href); return x.origin + x.pathname; } catch (e) { return String(u).split('?')[0].slice(0, 200); }
+  }
+  function log(line) {
+    if (!diagOn) return;
+    diagBuf.push('+' + ((Date.now() - t0) / 1000).toFixed(1) + 's ' + line);
+    if (diagBuf.length > 300) diagBuf.shift();
+  }
+  function diagFlush() {
+    if (diagBuf.length) invoke('acc_log', { lines: diagBuf.splice(0) });
+  }
+  function startDiag() {
+    diagOn = true;
+    var n = typeof Notification === 'function' ? Notification.permission : 'none';
+    var tz = '';
+    try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch (e) {}
+    log('start ' + bare(location.href) + ' | ' + navigator.userAgent + ' | lang ' + navigator.language + ' | tz ' + tz +
+      ' | notifications ' + n + ' | sw ' + !!navigator.serviceWorker + ' | push ' + !!window.PushManager + ' | cookies ' + navigator.cookieEnabled);
+    var of = window.fetch;
+    if (of) {
+      window.fetch = function (input, init) {
+        var p = of.apply(window, arguments);
+        if (diagOn) {
+          var m = (init && init.method) || (input && input.method) || 'GET';
+          var u = bare((input && input.url) || input);
+          p.then(function (r) {
+            log('fetch ' + m + ' ' + u + ' -> ' + r.status);
+            if (r.status >= 400) r.clone().text().then(function (t) { log('  ответ: ' + t.slice(0, 300)); }, function () {});
+          }, function (e) { log('fetch ' + m + ' ' + u + ' FAILED ' + e); });
+        }
+        return p;
+      };
+    }
+    var XP = window.XMLHttpRequest && XMLHttpRequest.prototype;
+    if (XP) {
+      var xo = XP.open, xs = XP.send;
+      XP.open = function (m, u) { this.__hovi = m + ' ' + bare(u); return xo.apply(this, arguments); };
+      XP.send = function () {
+        var x = this;
+        if (diagOn && x.__hovi) {
+          x.addEventListener('loadend', function () {
+            var t = '';
+            if (x.status >= 400 && (x.responseType === '' || x.responseType === 'text')) t = ' ' + String(x.responseText).slice(0, 300);
+            log('xhr ' + x.__hovi + ' -> ' + x.status + t);
+          });
+        }
+        return xs.apply(this, arguments);
+      };
+    }
+    var WS = window.WebSocket;
+    if (WS) {
+      var W = function (u, p) {
+        var s = p === undefined ? new WS(u) : new WS(u, p);
+        if (diagOn) {
+          var name = bare(u), c = 0;
+          log('ws connect ' + name);
+          s.addEventListener('open', function () { log('ws open ' + name); });
+          s.addEventListener('message', function (e) {
+            c++;
+            if (c <= 5 || c % 20 === 0) log('ws message #' + c + ' ' + name + ' (' + (e.data && (e.data.length || e.data.size || e.data.byteLength) || 0) + ' байт)');
+          });
+          s.addEventListener('error', function () { log('ws error ' + name); });
+          s.addEventListener('close', function (e) { log('ws closed ' + name + ' code ' + e.code + ' ' + e.reason + ', messages ' + c); });
+        }
+        return s;
+      };
+      W.prototype = WS.prototype;
+      W.CONNECTING = 0; W.OPEN = 1; W.CLOSING = 2; W.CLOSED = 3;
+      window.WebSocket = W;
+    }
+    var ES = window.EventSource;
+    if (ES) {
+      var E = function (u, o) {
+        var s = new ES(u, o);
+        if (diagOn) {
+          var name = bare(u);
+          log('eventsource ' + name);
+          s.addEventListener('error', function () { log('eventsource error ' + name + ' state ' + s.readyState); });
+        }
+        return s;
+      };
+      E.prototype = ES.prototype;
+      E.CONNECTING = 0; E.OPEN = 1; E.CLOSED = 2;
+      window.EventSource = E;
+    }
+    var wo = window.open;
+    window.open = function (u) { log('window.open ' + (u ? bare(u) : '(пусто)')); return wo.apply(window, arguments); };
+    window.addEventListener('error', function (e) {
+      if (e.target && e.target !== window && (e.target.src || e.target.href)) log('не загрузилось ' + bare(e.target.src || e.target.href));
+      else log('ошибка ' + e.message + ' ' + bare(e.filename || '') + ':' + e.lineno);
+    }, true);
+    window.addEventListener('unhandledrejection', function (e) {
+      var r = e.reason;
+      log('ошибка (promise) ' + String((r && (r.stack || r.message)) || r).slice(0, 300));
+    });
+    var ce = console.error;
+    console.error = function () {
+      try { log('console.error ' + Array.prototype.map.call(arguments, function (a) { return String((a && a.message) || a); }).join(' ').slice(0, 300)); } catch (e) {}
+      return ce.apply(console, arguments);
+    };
+    var lastState = '';
+    setInterval(function () {
+      if (!diagOn) return;
+      var keys = [];
+      try { for (var i = 0; i < localStorage.length; i++) keys.push(localStorage.key(i)); } catch (e) {}
+      var st = location.pathname + location.hash.split('?')[0] + ' | localStorage: ' + keys.sort().join(',') +
+        ' | cookies: ' + document.cookie.split(';').map(function (c) { return c.split('=')[0].trim(); }).filter(Boolean).join(',');
+      if (st !== lastState) { lastState = st; log('state ' + st); }
+      diagFlush();
+    }, 2000);
+    window.addEventListener('pagehide', diagFlush);
+  }
+
   window.__gemspaceInstall = function () {
     if (installed) return;
     installed = true;
+    log('signed in: chat list visible');
+    diagFlush();
+    diagOn = false;
     function GsNotification(title, opts) {
       var self = this;
       this.title = String(title || '');
@@ -90,7 +214,10 @@
       };
     }
   };
-  try { if (localStorage.getItem('hovi-signed-in') === '1') window.__gemspaceInstall(); } catch (e) {}
+  var signedIn = false;
+  try { signedIn = localStorage.getItem('hovi-signed-in') === '1'; } catch (e) {}
+  if (signedIn) window.__gemspaceInstall();
+  else startDiag();
 
   // the chat list read by shared/chats.js goes to the rail's "Все чаты"
   window.__gemspaceSendChats = function (chats) { invoke('acc_chats', { chats: chats }); };

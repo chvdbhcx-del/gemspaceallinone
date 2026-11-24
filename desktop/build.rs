@@ -27,6 +27,8 @@ fn main() {
         "acc_chats",
         "acc_hotkey",
         "acc_sent",
+        "acc_log",
+        "login_report",
     ])))
     .expect("failed to run tauri-build");
 }

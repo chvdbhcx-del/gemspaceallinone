@@ -573,6 +573,11 @@ async function openOverlay(kind, a) {
         <div class="set-row"><span class="af-ic">${icon(SAVE_PATH)}</span><span class="af-txt"><b>Аккаунты, настройки и метки</b><small id="s-backup-res">Названия, цвета, прокси и порядок аккаунтов. Входы в файл не попадают: на новом компьютере в аккаунты нужно войти заново</small></span></div>
         <div class="set-row set-btns"><button class="btn small" id="s-export">Сохранить в файл</button><button class="btn small" id="s-import">Восстановить из файла</button></div>
       </div>
+      <div class="set-label">Вход не проходит?</div>
+      <div class="af-card set-card">
+        <div class="set-row"><span class="af-ic">${icon(SAVE_PATH)}</span><span class="af-txt"><b>Отчёт о входе</b><small id="s-report-res">Попробуйте войти в аккаунт, затем сохраните отчёт и пришлите файл. В нём только адреса запросов и ошибки страницы, без переписки</small></span>
+          <button class="btn small" id="s-report">Сохранить</button></div>
+      </div>
       <div class="set-label">Обновления</div>
       <div class="af-card set-card">
         <div class="set-row"><span class="af-ic">${icon(REFRESH_PATH)}</span><span class="af-txt"><b>Версия ${esc(state.version || '')}</b><small id="s-check-res">Проверяются сами раз в несколько часов</small></span>
@@ -633,6 +638,12 @@ async function openOverlay(kind, a) {
         await openOverlay('settings');
         $('#s-backup-res').textContent = res;
       } catch (e) { $('#s-backup-res').textContent = 'Не удалось восстановить: ' + (typeof e === 'string' ? e : (e && e.message) || e); }
+    };
+    $('#s-report').onclick = async () => {
+      try {
+        const path = await invoke('login_report');
+        if (path) $('#s-report-res').textContent = 'Сохранено: ' + path;
+      } catch (e) { $('#s-report-res').textContent = 'Не удалось сохранить: ' + (typeof e === 'string' ? e : (e && e.message) || e); }
     };
     $('#s-check').onclick = async () => {
       const res = $('#s-check-res');
