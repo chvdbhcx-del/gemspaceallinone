@@ -50,6 +50,8 @@ pub const BC_PAUSE_FLOOR: u32 = 10;
 impl Settings {
     /// Keeps the broadcast limits sane whatever the rail or a backup file says.
     pub fn clamp(&mut self) {
+        self.max_awake = self.max_awake.clamp(1, 60);
+        self.ui_scale = self.ui_scale.clamp(80, 150);
         self.bc_limit = self.bc_limit.clamp(1, BC_LIMIT_MAX);
         self.bc_pause_min = self.bc_pause_min.clamp(BC_PAUSE_FLOOR, 600);
         self.bc_pause_max = self.bc_pause_max.clamp(self.bc_pause_min, 900);
@@ -110,11 +112,16 @@ impl Store {
     pub fn load(app: &AppHandle) -> Store {
         let Ok(path) = state_file(app) else { return Store::default() };
         match fs::read_to_string(&path) {
-            Ok(s) => serde_json::from_str(&s).unwrap_or_else(|e| {
-                eprintln!("gemspace: {} is broken ({e}), starting empty", path.display());
-                let _ = fs::copy(&path, path.with_extension("json.broken"));
-                Store::default()
-            }),
+            Ok(s) => serde_json::from_str::<Store>(&s)
+                .map(|mut st| {
+                    st.settings.clamp();
+                    st
+                })
+                .unwrap_or_else(|e| {
+                    eprintln!("gemspace: {} is broken ({e}), starting empty", path.display());
+                    let _ = fs::copy(&path, path.with_extension("json.broken"));
+                    Store::default()
+                }),
             Err(_) => Store::default(),
         }
     }
@@ -140,11 +147,21 @@ fn safe_color(c: &str) -> bool {
     c.len() == 7 && c.starts_with('#') && c[1..].chars().all(|x| x.is_ascii_hexdigit())
 }
 
+/// An account colour as "#rrggbb"; anything else (it ends up in the rail's styles) becomes the first colour.
+pub fn clean_color(c: &str) -> String {
+    if safe_color(c) { c.to_lowercase() } else { "#3aa0ff".into() }
+}
+
+/// A name trimmed and cut to `max` characters.
+pub fn clean_name(name: &str, max: usize) -> String {
+    name.trim().chars().take(max).collect::<String>().trim_end().to_string()
+}
+
 /// Keeps only well-formed labels and assignments to labels that exist; trims names.
 pub fn clean_labels(labels: Vec<Label>, chat_labels: BTreeMap<String, Vec<String>>) -> (Vec<Label>, BTreeMap<String, Vec<String>>) {
     let mut out: Vec<Label> = Vec::new();
     for l in labels {
-        let name: String = l.name.trim().chars().take(30).collect();
+        let name = clean_name(&l.name, 30);
         if safe_id(&l.id) && safe_color(&l.color) && !name.is_empty() && !out.iter().any(|x| x.id == l.id) && out.len() < MAX_LABELS {
             out.push(Label { id: l.id, name, color: l.color.to_lowercase() });
         }
@@ -204,9 +221,9 @@ impl Store {
         let (mut added, mut updated) = (0, 0);
         let mut renamed: BTreeMap<String, String> = BTreeMap::new();
         for a in b.accounts.into_iter().take(200) {
-            let name: String = a.name.trim().chars().take(40).collect();
+            let name = clean_name(&a.name, 40);
             let name = if name.is_empty() { format!("Аккаунт {}", self.accounts.len() + 1) } else { name };
-            let color = if safe_color(&a.color) { a.color.to_lowercase() } else { "#3aa0ff".into() };
+            let color = clean_color(&a.color);
             let proxy = a.proxy.filter(|p| parse_proxy(p).is_ok());
             if let Some(mine) = self.accounts.iter_mut().find(|m| m.id == a.id) {
                 mine.name = name;
@@ -225,7 +242,7 @@ impl Store {
         }
         if b.platform == "windows" {
             if let Ok(s) = serde_json::from_value::<Settings>(b.settings) {
-                self.settings = Settings { max_awake: s.max_awake.clamp(1, 60), ui_scale: s.ui_scale.clamp(80, 150), ..s };
+                self.settings = s;
                 self.settings.clamp();
             }
         }
@@ -369,6 +386,17 @@ mod tests {
         assert_eq!(s.labels.len(), 1);
         assert_eq!(s.chat_labels.get(&format!("{}|Чат", a.id)), Some(&vec!["l1".to_string()]));
         assert_eq!(s.chat_labels.len(), 1);
+    }
+
+    #[test]
+    fn names_colours_and_settings_are_kept_sane() {
+        assert_eq!(clean_name("  Продажи  ", 40), "Продажи");
+        assert_eq!(clean_name(&"я".repeat(50), 40).chars().count(), 40);
+        assert_eq!(clean_color("#FF4D4D"), "#ff4d4d");
+        assert_eq!(clean_color("red;background:url(x)"), "#3aa0ff");
+        let mut s = Settings { max_awake: 0, ui_scale: 500, bc_pause_min: 1, bc_pause_max: 5, bc_limit: 0, ..Settings::default() };
+        s.clamp();
+        assert_eq!((s.max_awake, s.ui_scale, s.bc_pause_min, s.bc_pause_max, s.bc_limit), (1, 150, 10, 10, 1));
     }
 
     #[test]

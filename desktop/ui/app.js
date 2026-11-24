@@ -6,8 +6,9 @@ const { listen } = window.__TAURI__.event;
 const { Menu } = window.__TAURI__.menu;
 
 const COLORS = ['#3aa0ff', '#26a69a', '#7e57c2', '#ef5350', '#ffa726', '#66bb6a', '#ec407a', '#8d6e63'];
+const COLOR_NAMES = ['Голубой', 'Бирюзовый', 'Фиолетовый', 'Красный', 'Оранжевый', 'Зелёный', 'Розовый', 'Коричневый'];
 let state = { accounts: [], active: null, settings: {}, total_unread: 0 };
-let overlayKind = null; // null | 'add' | 'edit' | 'settings' | 'welcome' | 'update' | 'label' | 'broadcast'
+let overlayKind = null; // null | 'welcome' | 'add' | 'edit' | 'remove' | 'settings' | 'update' | 'label' | 'broadcast'
 let panelOpen = false; // the chat list column next to the rail
 let chatQuery = '';
 let chatUnreadOnly = false;
@@ -53,7 +54,7 @@ function renderRail() {
     }
     if (tiles.children[i + 1] !== b) tiles.insertBefore(b, tiles.children[i + 1] || null); // child 0 is the indicator
     b.className = 'tile' + (a.id === state.active ? ' active' : '') + (a.awake ? '' : ' sleeping');
-    const hk = i < 9 ? `  (Ctrl+${i + 1})` : '';
+    const hk = i < 9 ? ` (Ctrl+${i + 1})` : '';
     b.title = a.name + hk + (a.awake ? '' : '\nспит, откроется по клику') + (a.proxy ? `\nпрокси: ${a.proxy}` : '');
     b.setAttribute('aria-label', a.name + (a.unread ? `, непрочитанных: ${a.unread}` : ''));
     const ava = b.querySelector('.ava');
@@ -106,7 +107,7 @@ function renderFeedButton() {
   }
   b.setAttribute('aria-label', 'Все чаты' + (n ? `, непрочитанных: ${n}` : ''));
   const f = (state.feed || []).length;
-  const fn = $('#p-feed-n'); if (fn) fn.textContent = f ? ' ' + (f > 99 ? '99+' : f) : '';
+  const fn = $('#p-feed-n'); if (fn) fn.textContent = f ? (f > 99 ? '99+' : String(f)) : '';
   feedShown = n;
 }
 
@@ -188,18 +189,18 @@ function renderChats() {
     if (c.dataset.l) c.oncontextmenu = (e) => { e.preventDefault(); labelMenu(c.dataset.l); };
   });
   $('#feed-clear').hidden = true;
-  const missing = state.accounts.filter((a) => !(lists[a.id] || []).length).map((a) => a.name);
-  $('#feed-note').textContent = (missing.length ? `Пока без списка: ${missing.join(', ').replace(/\.$/, '')}. Чаты аккаунта появятся, когда он загрузится. ` : '')
-    + 'Правый клик по чату ставит метки. Hovi Space читает список, который показывает страница Gem Space, и никуда его не отправляет. Пишет в чаты он только в рассылке, которую запустили вы.';
+  const missing = state.accounts.filter((a) => !(lists[a.id] || []).length).map((a) => a.name).join(', ');
+  $('#feed-note').textContent = (missing ? `Пока без списка: ${missing}${missing.endsWith('.') ? '' : '.'} Их чаты появятся, когда аккаунт загрузится. ` : '')
+    + 'Правый клик по чату ставит метки. Список берётся со страниц Gem Space и никуда не отправляется.';
   const q = chatQuery.trim().toLowerCase();
-  rows = rows.filter((r) => (!feedFilter || r.account === feedFilter) && (!chatUnreadOnly || r.unread) && (!q || r.name.toLowerCase().includes(q))
+  rows = rows.filter((r) => (!feedFilter || r.account === feedFilter) && (!chatUnreadOnly || r.unread) && (!q || r.name.toLowerCase().includes(q) || String(r.preview || '').toLowerCase().includes(q))
     && (!labelFilter || labelIds(r.account, r.name).includes(labelFilter)));
   rows.sort((a, b) => (b.at - a.at) || (a.account === b.account ? a.i - b.i : 0));
   if (!rows.length) {
     box.innerHTML = q || chatUnreadOnly || labelFilter
-      ? `<div class="feed-empty"><b>${q ? 'Ничего не найдено' : labelFilter ? 'С этой меткой чатов нет' : 'Непрочитанных нет'}</b>${labelFilter && !q ? '<span>Метка ставится правым кликом по чату.</span>' : ''}</div>`
+      ? `<div class="feed-empty"><b>${q ? 'Ничего не найдено' : labelFilter ? (chatUnreadOnly ? 'С этой меткой непрочитанных нет' : 'С этой меткой чатов нет') : 'Непрочитанных нет'}</b>${labelFilter && !q && !chatUnreadOnly ? '<span>Метка ставится правым кликом по чату.</span>' : ''}</div>`
       : `<div class="feed-empty"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>
-      <b>Список чатов ещё не загрузился</b><span>Он появится, когда откроются страницы аккаунтов. Если не появляется совсем, значит Gem Space поменял страницу, напишите нам.</span></div>`;
+      <b>Список чатов ещё не загрузился</b><span>Он появится, когда откроются страницы аккаунтов. Если его нет и после входа, значит Gem Space поменял страницу: сохраните «Отчёт о входе» в настройках и пришлите его.</span></div>`;
     return;
   }
   box.innerHTML = rows.map((c) => {
@@ -271,7 +272,7 @@ function renderFeed() {
   if (!box) return;
   $('#p-q').parentNode.hidden = feedTab !== 'all';
   if (feedTab === 'all') { renderChats(); return; }
-  $('#feed-note').textContent = 'Лента собирается из уведомлений аккаунтов, пока Hovi Space запущен. Спящие аккаунты сюда не пишут, важные отметьте «Не усыплять». Сообщения аккаунта уходят из ленты, когда в нём всё прочитано.';
+  $('#feed-note').textContent = 'Лента собирается из уведомлений, пока Hovi Space запущен. Спящие аккаунты сюда не пишут, важные отметьте «Не усыплять». Когда в аккаунте всё прочитано, его сообщения уходят из ленты.';
   const accounts = new Map(state.accounts.map((a) => [a.id, a]));
   const items = (state.feed || []).filter((i) => accounts.has(i.account));
   if (feedFilter && !items.some((i) => i.account === feedFilter)) feedFilter = null;
@@ -322,8 +323,8 @@ async function accountMenu(a, i) {
     id: 'pin', text: a.pinned ? 'Можно усыплять' : 'Не усыплять',
     action: () => invoke('update_account', { id: a.id, name: a.name, color: a.color, proxy: a.proxy, pinned: !a.pinned }).catch(alertErr),
   });
-  if (i > 0) items.push({ id: 'up', text: 'Выше', action: () => invoke('move_account', { id: a.id, delta: -1 }) });
-  if (i < state.accounts.length - 1) items.push({ id: 'down', text: 'Ниже', action: () => invoke('move_account', { id: a.id, delta: 1 }) });
+  if (i > 0) items.push({ id: 'up', text: 'Выше', action: () => invoke('move_account', { id: a.id, delta: -1 }).catch(alertErr) });
+  if (i < state.accounts.length - 1) items.push({ id: 'down', text: 'Ниже', action: () => invoke('move_account', { id: a.id, delta: 1 }).catch(alertErr) });
   items.push({ id: 'remove', text: 'Удалить аккаунт…', action: () => openOverlay('remove', a) });
   const menu = await Menu.new({ items });
   await menu.popup();
@@ -339,8 +340,8 @@ function alertErr(e) {
 }
 
 function colorPicker(current) {
-  return `<div class="colors">${COLORS.map((c) =>
-    `<button type="button" class="swatch${c === current ? ' on' : ''}" data-c="${c}" style="background:${c}"></button>`).join('')}</div>`;
+  return `<div class="colors">${COLORS.map((c, i) =>
+    `<button type="button" class="swatch${c === current ? ' on' : ''}" data-c="${c}" style="background:${c}" title="${COLOR_NAMES[i]}" aria-label="${COLOR_NAMES[i]}" aria-pressed="${c === current}"></button>`).join('')}</div>`;
 }
 
 const GLOBE = 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm6.9 6h-3a15.7 15.7 0 0 0-1.4-3.6A8 8 0 0 1 18.9 8zM12 4c.8 1.2 1.5 2.5 1.9 4h-3.8c.4-1.5 1.1-2.8 1.9-4zM4.3 14a8.2 8.2 0 0 1 0-4h3.4a16.5 16.5 0 0 0 0 4zm.8 2h3a15.7 15.7 0 0 0 1.4 3.6A8 8 0 0 1 5.1 16zm3-8h-3a8 8 0 0 1 4.4-3.6C8 5.6 7.6 6.8 8.1 8zM12 20c-.8-1.2-1.5-2.5-1.9-4h3.8c-.4 1.5-1.1 2.8-1.9 4zm2.3-6H9.7a14.7 14.7 0 0 1 0-4h4.6a14.7 14.7 0 0 1 0 4zm.3 5.6c.6-1.1 1.1-2.3 1.4-3.6h3a8 8 0 0 1-4.4 3.6zm1.7-5.6a16.5 16.5 0 0 0 0-4h3.4a8.2 8.2 0 0 1 0 4z';
@@ -354,6 +355,8 @@ const KEYS_PATH = 'M20 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2
 const SIZE_PATH = 'M9 4v3h5v12h3V7h5V4zm-6 8h3v7h3v-7h3V9H3z';
 const SCALES = [80, 90, 100, 110, 125, 150];
 const GEAR_PATH = 'M19.4 13a7.8 7.8 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.3 7.3 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.3 7.3 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.8 7.8 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.3 7.3 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.3 7.3 0 0 0 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z';
+const REPORT_PATH = 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zm-1 7V3.5L18.5 9zM8 13h8v2H8zm0 4h8v2H8zm0-8h3v2H8z';
+const UPDATE_PATH = 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 5h2v6.2l2.6-2.6L17 12l-5 5-5-5 1.4-1.4 2.6 2.6z';
 const TAG_PATH = 'M21.4 11.6 12.4 2.6A2 2 0 0 0 11 2H4a2 2 0 0 0-2 2v7a2 2 0 0 0 .6 1.4l9 9a2 2 0 0 0 2.8 0l7-7a2 2 0 0 0 0-2.8zM6.5 8a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z';
 const SAVE_PATH = 'M17 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7zm-5 16a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm3-10H5V5h10z';
 const icon = (d) => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${d}"/></svg>`;
@@ -363,8 +366,8 @@ function wireColors(root) {
   const ava = root.querySelector('#af-ava');
   root.querySelectorAll('.swatch').forEach((s) => {
     s.onclick = () => {
-      root.querySelectorAll('.swatch').forEach((x) => x.classList.remove('on'));
-      s.classList.add('on');
+      root.querySelectorAll('.swatch').forEach((x) => { x.classList.remove('on'); x.setAttribute('aria-pressed', 'false'); });
+      s.classList.add('on'); s.setAttribute('aria-pressed', 'true');
       if (ava) { ava.style.background = s.dataset.c; ava.classList.remove('bump'); void ava.offsetWidth; ava.classList.add('bump'); }
     };
   });
@@ -378,7 +381,7 @@ function accountForm(a) {
     <div class="af-hero">
       <span class="af-ava" id="af-ava" style="background:${esc(color)}">${a ? esc(initials(a.name)) : '+'}</span>
       <h1>${a ? 'Аккаунт' : 'Новый аккаунт'}</h1>
-      <p>${a ? 'Название, цвет и прокси этого аккаунта' : 'Откроется веб-версия Gem Space, войдите по номеру телефона, как обычно'}</p>
+      <p>${a ? 'Название, цвет и прокси этого аккаунта' : 'Откроется веб-версия Gem Space, войдите так же, как в браузере'}</p>
     </div>
     <div class="af-card">
       <label class="af-field"><span>Название</span>
@@ -398,6 +401,13 @@ function accountForm(a) {
   </div>`;
 }
 
+// Enter in a text field of the account form presses its main button
+function submitOnEnter(root) {
+  root.querySelectorAll('input[type=text]').forEach((el) => {
+    el.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !$('#f-ok').disabled) { e.preventDefault(); $('#f-ok').click(); } });
+  });
+}
+
 function formValues() {
   const on = document.querySelector('.swatch.on');
   return {
@@ -413,7 +423,7 @@ async function openOverlay(kind, a) {
   await invoke('set_overlay', { open: true });
   $('#overlay').hidden = false;
   $('#overlay').classList.toggle('welcome-mode', kind === 'welcome');
-  $('#overlay').classList.toggle('form-mode', kind === 'add' || kind === 'edit' || kind === 'remove' || kind === 'settings' || kind === 'label' || kind === 'broadcast');
+  $('#overlay').classList.toggle('form-mode', kind !== 'welcome');
   const body = $('#ov-body');
   $('#ov-close').hidden = kind === 'welcome';
   if (kind === 'welcome') {
@@ -431,7 +441,7 @@ async function openOverlay(kind, a) {
       </div>
       <button class="btn primary big" id="w-add">Добавить первый аккаунт</button>
       <button class="btn ghost" id="w-restore">Восстановить из резервной копии</button>
-      <p class="w-note">Откроется обычная веб-версия Gem Space, вход по номеру телефона, как всегда.<br>Hovi Space ничего не отправляет на свои серверы.</p>
+      <p class="w-note">Откроется обычная веб-версия Gem Space, вход такой же, как в браузере.<br>Hovi Space ничего не отправляет на свои серверы.</p>
     </div>`;
     $('#w-add').onclick = () => openOverlay('add');
     $('#w-restore').onclick = async () => {
@@ -459,7 +469,10 @@ async function openOverlay(kind, a) {
       <button class="btn primary big wide" id="f-ok">${l ? 'Сохранить' : 'Создать'}</button>
       <button class="btn ghost wide" id="f-cancel">Отмена</button></div>`;
     body.querySelectorAll('.swatch').forEach((sw) => {
-      sw.onclick = () => { body.querySelectorAll('.swatch').forEach((x) => x.classList.remove('on')); sw.classList.add('on'); $('#af-ava').style.background = sw.dataset.c; };
+      sw.onclick = () => {
+        body.querySelectorAll('.swatch').forEach((x) => { x.classList.remove('on'); x.setAttribute('aria-pressed', 'false'); });
+        sw.classList.add('on'); sw.setAttribute('aria-pressed', 'true'); $('#af-ava').style.background = sw.dataset.c;
+      };
     });
     $('#f-name').focus();
     const ok = async () => {
@@ -487,9 +500,11 @@ async function openOverlay(kind, a) {
     $('#f-name').focus();
     $('#f-ok').onclick = async () => {
       const v = formValues();
+      $('#f-ok').disabled = true;
       try { await invoke('add_account', { name: v.name, color: v.color, proxy: v.proxy }); closeOverlay(false); }
-      catch (e) { alertErr(e); }
+      catch (e) { $('#f-ok').disabled = false; alertErr(e); }
     };
+    submitOnEnter(body);
   } else if (kind === 'edit') {
     $('#ov-title').textContent = '';
     body.innerHTML = accountForm(a);
@@ -499,7 +514,7 @@ async function openOverlay(kind, a) {
       try {
         const restart = await invoke('update_account', { id: a.id, ...v });
         if (restart) {
-          $('.err').textContent = 'Новый прокси заработает после перезапуска Hovi Space (Выйти в трее и открыть снова).';
+          $('.err').textContent = 'Новый прокси заработает после перезапуска Hovi Space: нажмите «Выйти» в меню значка в трее и откройте Hovi Space снова.';
           $('#f-ok').textContent = 'Готово';
           $('#f-ok').onclick = () => closeOverlay();
           return;
@@ -507,6 +522,7 @@ async function openOverlay(kind, a) {
         closeOverlay();
       } catch (e) { alertErr(e); }
     };
+    submitOnEnter(body);
   } else if (kind === 'remove') {
     $('#ov-title').textContent = '';
     body.innerHTML = `<div class="acc-form">
@@ -521,13 +537,20 @@ async function openOverlay(kind, a) {
     };
   } else if (kind === 'update') {
     const u = state.update;
-    $('#ov-title').textContent = 'Обновление';
-    body.innerHTML = u ? `<p>Доступна новая версия Hovi Space <b>${esc(u.version)}</b>, у вас ${esc(state.version || '')}.</p>
-      ${u.notes ? `<div class="card notes">${esc(u.notes)}</div>` : ''}
-      <p class="hint">Hovi Space скачает обновление, проверит его подпись, установит и перезапустится. Аккаунты и входы сохранятся.</p>
+    $('#ov-title').textContent = '';
+    // release notes that only repeat the name and the version say nothing
+    const notes = u && u.notes && !/^\s*(gemspace|hovi space)\s+v?[\d.]+\s*$/i.test(u.notes) ? u.notes : '';
+    body.innerHTML = u ? `<div class="acc-form">
+      <div class="af-hero"><span class="af-ava set-ava">${icon(UPDATE_PATH)}</span>
+        <h1>Версия ${esc(u.version)}</h1><p>Сейчас у вас ${esc(state.version || '')}. Hovi Space скачает обновление, проверит подпись, установит его и перезапустится. Аккаунты и входы сохранятся.</p></div>
+      ${notes ? `<div class="af-card notes">${esc(notes)}</div>` : ''}
       <div class="progress" hidden><span></span></div>
-      <div class="row"><button class="btn primary" id="f-ok">Обновить сейчас</button><button class="btn" id="f-cancel">Позже</button></div><div class="err"></div>`
-      : `<p>У вас последняя версия Hovi Space ${esc(state.version || '')}.</p><div class="row"><button class="btn" id="f-cancel">Закрыть</button></div>`;
+      <div class="err"></div>
+      <button class="btn primary big wide" id="f-ok">Обновить сейчас</button>
+      <button class="btn ghost wide" id="f-cancel">Позже</button></div>`
+      : `<div class="acc-form"><div class="af-hero"><span class="af-ava set-ava">${icon(UPDATE_PATH)}</span>
+        <h1>Обновлений нет</h1><p>У вас последняя версия Hovi Space ${esc(state.version || '')}.</p></div>
+        <button class="btn ghost wide" id="f-cancel">Закрыть</button></div>`;
     if (u) {
       $('#f-ok').onclick = async () => {
         $('#f-ok').disabled = true; $('#f-cancel').disabled = true;
@@ -575,7 +598,7 @@ async function openOverlay(kind, a) {
       </div>
       <div class="set-label">Вход не проходит?</div>
       <div class="af-card set-card">
-        <div class="set-row"><span class="af-ic">${icon(SAVE_PATH)}</span><span class="af-txt"><b>Отчёт о входе</b><small id="s-report-res">Попробуйте войти в аккаунт, затем сохраните отчёт и пришлите файл. В нём только адреса запросов и ошибки страницы, без переписки</small></span>
+        <div class="set-row"><span class="af-ic">${icon(REPORT_PATH)}</span><span class="af-txt"><b>Отчёт о входе</b><small id="s-report-res">Попробуйте войти в аккаунт, затем сохраните отчёт и пришлите файл. В нём только адреса запросов и ошибки страницы, без переписки</small></span>
           <button class="btn small" id="s-report">Сохранить</button></div>
       </div>
       <div class="set-label">Обновления</div>
@@ -614,6 +637,7 @@ async function openOverlay(kind, a) {
     });
     $('#f-ok').onclick = async () => {
       const settings = {
+        ...state.settings, // the broadcast settings live in the same struct: a missing field would reset them
         notifications: $('#s-notif').checked,
         notify_preview: $('#s-preview').checked,
         sleep_enabled: $('#s-sleep').checked,
@@ -621,7 +645,8 @@ async function openOverlay(kind, a) {
         close_to_tray: $('#s-tray').checked,
         ui_scale: Number(($('#s-scale .on') || {}).dataset?.v) || 100,
       };
-      await invoke('set_settings', { settings });
+      try { await invoke('set_settings', { settings }); } catch (e) { alertErr(e); return; }
+      state.settings = settings;
       closeOverlay();
     };
     $('#s-export').onclick = async () => {
@@ -678,13 +703,13 @@ $('#upd').onclick = () => openOverlay('update');
 $('#feed').onclick = () => setPanel(!panelOpen);
 $('#p-close').onclick = () => setPanel(false);
 $('#p-q').oninput = (e) => { chatQuery = e.target.value; chatSeen.clear(); renderFeed(); };
-$('#feed-clear').onclick = () => invoke('feed_clear', { account: feedFilter });
+$('#feed-clear').onclick = () => invoke('feed_clear', { account: feedFilter }).catch(alertErr);
 $('#p-tabs').querySelectorAll('button').forEach((b) => {
   b.onclick = () => {
     if (feedTab === b.dataset.t) return;
     feedTab = b.dataset.t;
     try { localStorage.setItem('gs-feed-tab', feedTab); } catch (e) {}
-    $('#p-tabs').querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
+    $('#p-tabs').querySelectorAll('button').forEach((x) => { x.classList.toggle('on', x === b); x.setAttribute('aria-selected', String(x === b)); });
     segPill($('#p-tabs'));
     feedFilter = null; chatSeen.clear(); feedSeen.clear();
     renderFeed();
@@ -698,7 +723,7 @@ async function setPanel(open) {
   document.body.classList.toggle('panel-open', open);
   $('#panel').hidden = !open;
   if (open) {
-    $('#p-tabs').querySelectorAll('button').forEach((x) => x.classList.toggle('on', x.dataset.t === feedTab));
+    $('#p-tabs').querySelectorAll('button').forEach((x) => { x.classList.toggle('on', x.dataset.t === feedTab); x.setAttribute('aria-selected', String(x.dataset.t === feedTab)); });
     requestAnimationFrame(() => segPill($('#p-tabs')));
     chatSeen.clear(); feedSeen.clear();
     renderFeed();

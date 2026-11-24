@@ -1,4 +1,4 @@
-# Builds Gemspace for Windows (Tauri, NSIS installer) and Android (APK) and, on main, publishes both
+# Builds Hovi Space (formerly Gemspace; the asset names stay for the updaters) for Windows (Tauri, NSIS installer) and Android (APK) and, on main, publishes both
 # to a GitHub release. Stable file names, so .../releases/latest/download/<name> always gives the newest.
 name: Build
 
@@ -86,7 +86,7 @@ jobs:
               const fs = require("fs");
               const [sig, version, url] = process.argv.slice(1);
               fs.writeFileSync("../out/latest.json", JSON.stringify({
-                version, notes: "Gemspace " + version, pub_date: new Date().toISOString(),
+                version, notes: "Hovi Space " + version, pub_date: new Date().toISOString(),
                 platforms: { "windows-x86_64": { signature: fs.readFileSync(sig, "utf8").trim(), url } },
               }, null, 2));
             ' "$EXE.sig" "0.1.${GEMSPACE_BUILD}" "https://github.com/${REPO}/releases/download/v0.1.${GEMSPACE_BUILD}/Gemspace-setup.exe"
@@ -169,6 +169,6 @@ jobs:
           # the tag names the version the apps compare (desktop latest.json, android Updater.kt)
           TAG="v0.1.${GEMSPACE_BUILD}"
           gh release create "$TAG" * --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --latest \
-            --title "Gemspace 0.1.${GEMSPACE_BUILD}" \
+            --title "Hovi Space 0.1.${GEMSPACE_BUILD}" \
             --notes "- \`Gemspace-setup.exe\`: Windows 10/11. Если SmartScreen ругается: «Подробнее» → «Выполнить в любом случае».
           - \`Gemspace.apk\`: Android 8+. Для нескольких аккаунтов нужен Android System WebView 128 или новее."

@@ -1,6 +1,7 @@
-// Hovi Space: runs in every account webview before the Gem Space page. It does not read or change
-// the page (until sign-in it only watches its requests for the sign-in report): it only reroutes web notifications to Hovi Space (so they carry the account name, work
-// for hidden accounts and fill the shared feed) and forwards the account hotkeys (Ctrl+1..9, Ctrl+Tab).
+// Hovi Space: runs in every account webview before the Gem Space page. Until the account is signed in it
+// only watches the page's requests for the sign-in report. After that it reroutes web notifications to
+// Hovi Space (so they carry the account name, work for hidden accounts and fill the shared feed). It also
+// forwards the account hotkeys (Ctrl+1..9, Ctrl+Tab, F12).
 (function () {
   if (window.__gemspace) return;
   window.__gemspace = true;

@@ -190,15 +190,21 @@
   }
   var sending = false;
   window.__gemspaceSend = function (name, body, token) {
-    function done(ok, error) {
-      sending = false;
+    function answer(ok, error) {
       try { if (window.__gemspaceSent) window.__gemspaceSent({ token: token, ok: ok, error: error || '' }); } catch (e) {}
     }
-    if (sending) return done(false, 'Предыдущее сообщение ещё отправляется');
+    function done(ok, error) {
+      sending = false;
+      answer(ok, error);
+    }
+    // a second message while one is on its way is refused without touching the first one's lock
+    if (sending) return answer(false, 'Предыдущее сообщение ещё отправляется');
     sending = true;
     name = String(name || ''); body = String(body || '');
     if (!name || !body.trim()) return done(false, 'Пустой текст');
     (async function () {
+      // an account woken up for this message shows its chat list only after a while
+      if (!(await wait(function () { return document.querySelector(ROW); }, 20000))) return done(false, 'Список чатов не загрузился');
       window.__gemspaceOpenChat(name);
       var row = await wait(function () {
         var rows = document.querySelectorAll(ROW);

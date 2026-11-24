@@ -81,6 +81,8 @@ pub(crate) struct Live {
     pub(crate) update: Option<update::UpdateView>,
     /// the chat list each awake account's page shows, for "Все чаты"
     chats: HashMap<String, Vec<ChatRow>>,
+    /// accounts whose Gem Space page has finished loading (a broadcast waits for it after waking one)
+    loaded: HashSet<String>,
     /// broadcast messages waiting for their page's answer: token -> (account, reply)
     waiters: HashMap<String, (String, tokio::sync::oneshot::Sender<(bool, String)>)>,
     /// sign-in report: what the pages of not yet signed-in accounts load and how it ends (see diag())
@@ -330,9 +332,18 @@ fn create_account_webview(app: &AppHandle, account: &Account) -> tauri::Result<W
             NewWindowResponse::Deny
         })
         .on_page_load(move |_wv, payload| {
-            let ev = if payload.event() == PageLoadEvent::Finished { "loaded" } else { "loading" };
-            diag(&app_load, &id_load, &format!("page {ev} {}", bare_url(payload.url())));
-            if payload.event() == PageLoadEvent::Finished {
+            let finished = payload.event() == PageLoadEvent::Finished;
+            diag(&app_load, &id_load, &format!("page {} {}", if finished { "loaded" } else { "loading" }, bare_url(payload.url())));
+            {
+                let st = app_load.state::<AppState>();
+                let mut live = st.live.lock().unwrap();
+                if finished && payload.url().host_str().is_some_and(|h| h == "gemspace.com" || h.ends_with(".gemspace.com")) {
+                    live.loaded.insert(id_load.clone());
+                } else if !finished {
+                    live.loaded.remove(&id_load);
+                }
+            }
+            if finished {
                 publish(&app_load);
             }
         })
@@ -472,7 +483,9 @@ fn sleep(app: &AppHandle, id: &str) {
         let _ = wv.close();
     }
     let st = app.state::<AppState>();
-    st.live.lock().unwrap().lru.retain(|x| x != id);
+    let mut live = st.live.lock().unwrap();
+    live.lru.retain(|x| x != id);
+    live.loaded.remove(id);
 }
 
 fn switch_to(app: &AppHandle, id: &str) -> Result<(), String> {
@@ -540,16 +553,18 @@ async fn get_state(app: AppHandle) -> StateView {
 
 #[tauri::command]
 async fn add_account(app: AppHandle, name: String, color: String, proxy: Option<String>) -> Result<String, String> {
-    if let Some(p) = proxy.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+    let proxy = proxy.map(|p| p.trim().to_string()).filter(|p| !p.is_empty());
+    if let Some(p) = proxy.as_deref() {
         store::parse_proxy(p)?;
     }
+    let (name, color) = (store::clean_name(&name, 40), store::clean_color(&color));
     let id = {
         let st = app.state::<AppState>();
         let mut store = st.store.lock().unwrap();
         let id = store::new_id();
         let n = store.accounts.len() + 1;
-        let name = if name.trim().is_empty() { format!("Аккаунт {n}") } else { name.trim().to_string() };
-        store.accounts.push(Account { id: id.clone(), name, color, proxy: proxy.filter(|p| !p.trim().is_empty()), pinned: false });
+        let name = if name.is_empty() { format!("Аккаунт {n}") } else { name };
+        store.accounts.push(Account { id: id.clone(), name, color, proxy, pinned: false });
         id
     };
     save(&app);
@@ -567,16 +582,17 @@ async fn update_account(
     proxy: Option<String>,
     pinned: bool,
 ) -> Result<bool, String> {
-    let proxy = proxy.filter(|p| !p.trim().is_empty());
+    let proxy = proxy.map(|p| p.trim().to_string()).filter(|p| !p.is_empty());
     if let Some(p) = proxy.as_deref() {
         store::parse_proxy(p)?;
     }
+    let (name, color) = (store::clean_name(&name, 40), store::clean_color(&color));
     let proxy_changed = {
         let st = app.state::<AppState>();
         let mut store = st.store.lock().unwrap();
         let a = store.accounts.iter_mut().find(|a| a.id == id).ok_or("нет такого аккаунта")?;
-        if !name.trim().is_empty() {
-            a.name = name.trim().to_string();
+        if !name.is_empty() {
+            a.name = name;
         }
         a.color = color;
         a.pinned = pinned;
@@ -736,6 +752,14 @@ async fn broadcast_send(app: AppHandle, account: String, name: String, text: Str
     }
     switch_to(&app, &account)?;
     let wv = app.get_webview(&label_of(&account)).ok_or("Аккаунт не загружен")?;
+    // an account woken up for this message has no Gem Space page yet to send it
+    let started = std::time::Instant::now();
+    while !app.state::<AppState>().live.lock().unwrap().loaded.contains(&account) {
+        if started.elapsed() > std::time::Duration::from_secs(30) {
+            return Err("Страница аккаунта не загрузилась".into());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
     let token = store::new_id();
     let (tx, rx) = tokio::sync::oneshot::channel();
     let panel = {
@@ -752,7 +776,8 @@ async fn broadcast_send(app: AppHandle, account: String, name: String, text: Str
         focus_js(panel)
     );
     let _ = wv.eval(js);
-    let answer = tokio::time::timeout(std::time::Duration::from_secs(45), rx).await;
+    // the page waits up to 20 s for its chat list, then opens the chat, types and sends
+    let answer = tokio::time::timeout(std::time::Duration::from_secs(60), rx).await;
     app.state::<AppState>().live.lock().unwrap().waiters.remove(&token);
     match answer {
         Ok(Ok((true, _))) => {
@@ -845,7 +870,12 @@ async fn backup_import(app: AppHandle) -> Result<Option<String>, String> {
     apply_scale(&app);
     enforce_sleep(&app);
     publish(&app);
-    Ok(Some(format!("Добавлено аккаунтов: {added}, обновлено: {updated}. В новые аккаунты нужно войти заново.")))
+    Ok(Some(match (added, updated) {
+        (0, 0) => "В файле нет аккаунтов, восстановлены настройки и метки.".to_string(),
+        (0, u) => format!("Обновлено аккаунтов: {u}."),
+        (a, 0) => format!("Добавлено аккаунтов: {a}. В них нужно войти заново."),
+        (a, u) => format!("Добавлено аккаунтов: {a}, обновлено: {u}. В новые нужно войти заново."),
+    }))
 }
 
 /// Today as YYYY-MM-DD in UTC, for the backup's file name.
@@ -978,15 +1008,13 @@ async fn acc_notify(app: AppHandle, webview: Webview, title: String, body: Strin
     if !added {
         return;
     }
-    publish(&app);
     let focused = main_window(&app).and_then(|w| w.is_focused().ok()).unwrap_or(false);
-    let visible = focused && active.as_deref() == Some(id.as_str());
-    if visible {
-        return;
-    }
     if active.as_deref() != Some(id.as_str()) {
         app.state::<AppState>().live.lock().unwrap().attention.insert(id.clone());
-        publish(&app);
+    }
+    publish(&app);
+    if focused && active.as_deref() == Some(id.as_str()) {
+        return; // the user is looking at this account
     }
     if !settings.notifications {
         return;
