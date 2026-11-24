@@ -323,7 +323,8 @@ fn create_account_webview(app: &AppHandle, account: &Account) -> tauri::Result<W
             true
         })
         .on_new_window(move |url, _features| {
-            diag(&app_window, &id_win, &format!("new window {}", bare_url(&url)));
+            let keys: Vec<String> = url.query_pairs().map(|(k, _)| k.into_owned()).collect();
+            diag(&app_window, &id_win, &format!("new window {} ?{}", bare_url(&url), keys.join(",")));
             // links from chats open in the system browser, never inside the account
             open_external(&app_window, url.as_str());
             NewWindowResponse::Deny
@@ -344,11 +345,30 @@ fn create_account_webview(app: &AppHandle, account: &Account) -> tauri::Result<W
                 _ => PermissionResponse::Default,
             }
         });
-    if let Some(proxy) = account.proxy.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
-        match store::parse_proxy(proxy) {
-            Ok(url) => builder = builder.proxy_url(url),
-            Err(e) => eprintln!("gemspace: bad proxy for {}: {e}", account.id),
+    let proxy = account.proxy.as_deref().map(str::trim).filter(|p| !p.is_empty()).and_then(|p| match store::parse_proxy(p) {
+        Ok(url) => Some(url),
+        Err(e) => {
+            eprintln!("gemspace: bad proxy for {}: {e}", account.id);
+            None
         }
+    });
+    // WebView2 introduces itself as "Microsoft Edge WebView2" (user agent "Edg/", Sec-CH-UA). The page
+    // runs as in Chrome instead, where Gem Space's sign-in works: Chrome's user agent of the same version,
+    // no client hints. wry's own arguments are kept (they are replaced once any are given), proxy included.
+    #[cfg(windows)]
+    {
+        let major = tauri::webview_version().ok().and_then(|v| v.split('.').next().map(str::to_string)).unwrap_or_else(|| "142".into());
+        builder = builder.user_agent(&format!(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36"
+        ));
+        let mut args = String::from("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,UserAgentClientHint");
+        if let Some(url) = &proxy {
+            args.push_str(&format!(" --proxy-server={}://{}:{}", url.scheme(), url.host_str().unwrap_or_default(), url.port().unwrap_or_default()));
+        }
+        builder = builder.additional_browser_args(&args);
+    }
+    if let Some(url) = proxy {
+        builder = builder.proxy_url(url);
     }
     let (Ok(size), Ok(scale)) = (window.inner_size(), window.scale_factor()) else {
         return Err(tauri::Error::WindowNotFound);

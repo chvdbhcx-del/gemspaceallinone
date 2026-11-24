@@ -34,6 +34,32 @@
   // Until the account is signed in, Hovi Space leaves the page exactly as in a browser: Gem Space's sign-in
   // (Telegram bot, QR) must see the real Notification and permission APIs, not ours. shared/chats.js calls
   // __gemspaceInstall once the chat list shows (signed in) and remembers it for this account.
+  // As in Chrome (see the user agent in lib.rs): the page's navigator.userAgentData without the
+  // "Microsoft Edge" / "WebView2" brands, as Chrome names itself.
+  try {
+    var uad = navigator.userAgentData;
+    if (uad && uad.brands && uad.brands.some(function (b) { return /Edge|WebView/i.test(b.brand); })) {
+      var fix = function (list) {
+        return (list || []).map(function (b) { return /Edge|WebView/i.test(b.brand) ? { brand: 'Google Chrome', version: b.version } : b; })
+          .filter(function (b, i, all) { return all.findIndex(function (x) { return x.brand === b.brand; }) === i; });
+      };
+      var fake = {
+        brands: fix(uad.brands),
+        mobile: uad.mobile,
+        platform: uad.platform,
+        getHighEntropyValues: function (h) {
+          return uad.getHighEntropyValues(h).then(function (v) {
+            if (v.brands) v.brands = fix(v.brands);
+            if (v.fullVersionList) v.fullVersionList = fix(v.fullVersionList);
+            return v;
+          });
+        },
+        toJSON: function () { return { brands: this.brands, mobile: this.mobile, platform: this.platform }; },
+      };
+      Object.defineProperty(Navigator.prototype, 'userAgentData', { get: function () { return fake; }, configurable: true });
+    }
+  } catch (e) {}
+
   var installed = false;
 
   // Sign-in report (Settings, "Отчёт о входе"): until the account is signed in, which requests the page
@@ -45,6 +71,10 @@
   var t0 = Date.now();
   function bare(u) {
     try { var x = new URL(String(u), location.href); return x.origin + x.pathname; } catch (e) { return String(u).split('?')[0].slice(0, 200); }
+  }
+  // names (never values) of an address's query, e.g. whether a Telegram link carries its start token
+  function keys(u) {
+    try { var q = Array.from(new URL(String(u), location.href).searchParams.keys()); return q.length ? ' ?' + q.join(',') : ''; } catch (e) { return ''; }
   }
   function log(line) {
     if (!diagOn) return;
@@ -60,7 +90,7 @@
     var tz = '';
     try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch (e) {}
     log('start ' + bare(location.href) + ' | ' + navigator.userAgent + ' | lang ' + navigator.language + ' | tz ' + tz +
-      ' | notifications ' + n + ' | sw ' + !!navigator.serviceWorker + ' | push ' + !!window.PushManager + ' | cookies ' + navigator.cookieEnabled);
+      ' | brands ' + (navigator.userAgentData ? JSON.stringify(navigator.userAgentData.brands) : 'none') + ' | notifications ' + n + ' | sw ' + !!navigator.serviceWorker + ' | push ' + !!window.PushManager + ' | cookies ' + navigator.cookieEnabled);
     var of = window.fetch;
     if (of) {
       window.fetch = function (input, init) {
@@ -129,7 +159,25 @@
       window.EventSource = E;
     }
     var wo = window.open;
-    window.open = function (u) { log('window.open ' + (u ? bare(u) : '(пусто)')); return wo.apply(window, arguments); };
+    window.open = function (u) { log('window.open ' + (u ? bare(u) + keys(u) : '(пусто)')); return wo.apply(window, arguments); };
+    // the page's own route changes (no reload) and what leads to a reload
+    ['pushState', 'replaceState'].forEach(function (k) {
+      var f = history[k];
+      history[k] = function (st, t, u) { if (u) log(k + ' ' + bare(u)); return f.apply(history, arguments); };
+    });
+    window.addEventListener('beforeunload', function () { log('page unloads (reload or leave)'); diagFlush(); });
+    document.addEventListener('visibilitychange', function () { log('visibility ' + document.visibilityState); });
+    window.addEventListener('focus', function () { log('focus'); });
+    if (navigator.serviceWorker) {
+      log('service worker ' + (navigator.serviceWorker.controller ? 'controls the page' : 'not controlling yet'));
+      // A service worker installed on the first visit takes over the page, and a page that reloads on that
+      // loses its sign-in token (Gem Space then waits forever). Until sign-in the page does not hear of it.
+      navigator.serviceWorker.addEventListener('controllerchange', function (e) {
+        if (!diagOn) return;
+        log('service worker took over: reload held back until sign-in');
+        e.stopImmediatePropagation();
+      }, true);
+    }
     window.addEventListener('error', function (e) {
       if (e.target && e.target !== window && (e.target.src || e.target.href)) log('не загрузилось ' + bare(e.target.src || e.target.href));
       else log('ошибка ' + e.message + ' ' + bare(e.filename || '') + ':' + e.lineno);
