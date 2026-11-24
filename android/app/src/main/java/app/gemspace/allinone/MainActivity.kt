@@ -1200,11 +1200,11 @@ class MainActivity : AppCompatActivity() {
         if (t == null && meta.templates.size >= ChatMeta.MAX_TEMPLATES) {
             Toast.makeText(this, "Шаблонов не больше ${ChatMeta.MAX_TEMPLATES}", Toast.LENGTH_SHORT).show(); return
         }
-        val title = EditText(this).apply {
+        val titleField = EditText(this).apply {
             setText(t?.title ?: ""); hint = "Название, например Приветствие"; isSingleLine = true
             filters = arrayOf(android.text.InputFilter.LengthFilter(40))
         }
-        val text = EditText(this).apply {
+        val textField = EditText(this).apply {
             setText(t?.text ?: ""); hint = "Здравствуйте, {имя}! …"
             minLines = 4; maxLines = 10; gravity = Gravity.TOP or Gravity.START
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
@@ -1212,7 +1212,7 @@ class MainActivity : AppCompatActivity() {
         }
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(22), dp(8), dp(22), 0)
-            addView(title); addView(text)
+            addView(titleField); addView(textField)
             addView(TextView(context).apply {
                 text = "{имя} заменится на имя из чата, например «Ирина»."; textSize = 12f
                 setTextColor(ContextCompat.getColor(context, R.color.muted)); setPadding(dp(4), dp(6), 0, 0)
@@ -1220,9 +1220,9 @@ class MainActivity : AppCompatActivity() {
         }
         val b = AlertDialog.Builder(this).setTitle(if (t == null) "Новый шаблон" else "Шаблон").setView(box)
             .setPositiveButton(if (t == null) "Создать" else "Сохранить") { _, _ ->
-                val body = text.text.toString().trim()
+                val body = textField.text.toString().trim()
                 if (body.isEmpty()) { Toast.makeText(this, "Шаблон без текста не сохранён", Toast.LENGTH_SHORT).show(); return@setPositiveButton }
-                val head = title.text.toString().trim()
+                val head = titleField.text.toString().trim()
                 if (t != null) { t.title = head; t.text = body } else meta.templates += Template("t" + System.currentTimeMillis().toString(36), head, body)
                 saveMeta()
                 templatesDialog()
