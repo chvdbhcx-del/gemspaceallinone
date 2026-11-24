@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-template-insert"
+description = "Enables the template_insert command without any pre-configured scope."
+commands.allow = ["template_insert"]
+
+[[permission]]
+identifier = "deny-template-insert"
+description = "Denies the template_insert command without any pre-configured scope."
+commands.deny = ["template_insert"]

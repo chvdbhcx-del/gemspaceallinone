@@ -2,8 +2,9 @@
 // that the page already shows (name, time, preview, unread count, avatar of the rows in the DOM) and
 // hands it to Hovi Space for the "Все чаты" list across accounts. Nothing is sent anywhere else. It relies
 // on Gem Space's data-test="group-link" rows; if their markup changes, the list simply stays empty and
-// Hovi Space shows a hint instead. The only thing that types in Gem Space is __gemspaceSend below, and only
-// when the user starts a broadcast (рассылка) to chats they picked.
+// Hovi Space shows a hint instead. It types in Gem Space only when the user asks: __gemspaceSend below for a
+// broadcast (рассылка) to chats they picked, and __gemspaceInsert for a template, which is only put into the
+// message field and never sent.
 (function () {
   if (window.__gemspaceChats) return;
   window.__gemspaceChats = true;
@@ -245,6 +246,64 @@
         clear(composer() || field);
         return done(false, 'Gem Space не принял отправку');
       }
+      done(true);
+    })().catch(function (e) { done(false, 'Ошибка: ' + (e && e.message || e)); });
+  };
+
+  // Quick-reply template (шаблон), picked by the user: puts the text into the message field of the open chat,
+  // or first opens the chat `name` of the list, and never sends it: the user reads it and presses "Отправить"
+  // in Gem Space. {имя} becomes the first word of the open chat's name, found among `names` (the account's
+  // chats) by the title on screen; when no name is known it stays as typed, for the user to fill in.
+  // Answers like a broadcast message, with __gemspaceSent({token, ok, error}), or calls `token` back when it is a
+  // function (a template picked in the page's own menus, shared/crm.js).
+  window.__gemspaceInsert = function (name, body, names, token) {
+    function answer(ok, error) {
+      try {
+        // from the page itself (shared/crm.js): a callback instead of a token for Hovi Space
+        if (typeof token === 'function') token(ok, error || '');
+        else if (window.__gemspaceSent) window.__gemspaceSent({ token: token, ok: ok, error: error || '' });
+      } catch (e) {}
+    }
+    function done(ok, error) {
+      sending = false;
+      answer(ok, error);
+    }
+    if (sending) return answer(false, 'Подождите, предыдущий текст ещё вставляется');
+    sending = true;
+    name = String(name || ''); body = String(body || '');
+    if (!body.trim()) return done(false, 'Пустой шаблон');
+    (async function () {
+      if (name) {
+        if (!(await wait(function () { return document.querySelector(ROW); }, 20000))) return done(false, 'Список чатов не загрузился');
+        window.__gemspaceOpenChat(name);
+        if (!(await wait(function () { return headerShows(name); }, 8000))) return done(false, 'Не открылся нужный чат');
+      }
+      var field = await wait(composer, name ? 5000 : 1500);
+      if (!field) return done(false, 'Откройте чат, в который вставить шаблон');
+      if (name) await wait(function () { return false; }, 400); // the chat's own draft comes back first
+      var who = name;
+      if (!who && names && names.length) {
+        for (var n = 0; n < names.length && n < 60; n++) if (headerShows(String(names[n]))) { who = String(names[n]); break; }
+      }
+      var first = who ? (who.replace(/[«»"“”]/g, '').trim().split(/\s+/)[0] || '') : '';
+      var filled = first ? body.replace(/\{имя\}/gi, function () { return first; }) : body;
+      field.focus();
+      try {
+        if (field.tagName === 'TEXTAREA') { var l = field.value.length; field.setSelectionRange(l, l); }
+        else { var sel = document.getSelection(); sel.selectAllChildren(field); sel.collapseToEnd(); }
+      } catch (e) {}
+      var before = fieldText(field);
+      if (before && !/\s$/.test(field.tagName === 'TEXTAREA' ? field.value : (field.innerText || ''))) document.execCommand('insertText', false, ' ');
+      var lines = filled.replace(/\r\n?/g, '\n').split('\n');
+      for (var i = 0; i < lines.length; i++) {
+        if (i) {
+          if (field.tagName === 'TEXTAREA') document.execCommand('insertText', false, '\n');
+          else if (!document.execCommand('insertLineBreak')) document.execCommand('insertParagraph');
+        }
+        if (lines[i]) document.execCommand('insertText', false, lines[i]);
+      }
+      var want = filled.replace(/\s+/g, ' ').trim();
+      if (fieldText(field).indexOf(want) < 0) return done(false, 'Не удалось вставить текст в поле');
       done(true);
     })().catch(function (e) { done(false, 'Ошибка: ' + (e && e.message || e)); });
   };

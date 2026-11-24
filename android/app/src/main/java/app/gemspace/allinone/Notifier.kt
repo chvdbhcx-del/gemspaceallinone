@@ -10,6 +10,7 @@ import androidx.core.app.NotificationManagerCompat
 
 object Notifier {
     const val EXTRA_ACCOUNT = "account"
+    const val EXTRA_CHAT = "chat"
     private const val CH_MESSAGES = "messages"
     const val CH_SERVICE = "service"
     const val SERVICE_ID = 1
@@ -54,6 +55,30 @@ object Notifier {
             NotificationManagerCompat.from(ctx).notify(idFor(account.id), n)
         } catch (e: SecurityException) {
             // notifications are not allowed
+        }
+    }
+
+    /** A reminder the user set on a chat: always shown (they asked for it); a tap opens that chat. */
+    fun reminder(ctx: Context, account: Account, chat: String, note: String) {
+        val key = "${account.id}|$chat"
+        val code = 500_000 + (key.hashCode() and 0xFFFFF)
+        val i = Intent(ctx, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            .putExtra(EXTRA_ACCOUNT, account.id).putExtra(EXTRA_CHAT, chat)
+        val n = NotificationCompat.Builder(ctx, CH_MESSAGES)
+            .setSmallIcon(R.drawable.ic_stat)
+            .setColor(account.color)
+            .setContentTitle("Напоминание · ${account.name}")
+            .setContentText(if (note.isEmpty()) chat else "$chat · $note")
+            .setStyle(NotificationCompat.BigTextStyle().bigText(if (note.isEmpty()) chat else "$chat\n$note"))
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(PendingIntent.getActivity(ctx, code, i, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
+            .build()
+        try {
+            NotificationManagerCompat.from(ctx).notify(code, n)
+        } catch (e: SecurityException) {
         }
     }
 

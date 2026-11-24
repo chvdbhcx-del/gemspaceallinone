@@ -2,6 +2,7 @@
 //! Gem Space account (its own WebView2 data folder, so its own cookies and storage, and its own proxy).
 //! The Gem Space web app itself is loaded unmodified from https://web.gemspace.com/.
 
+mod crm;
 mod feed;
 mod store;
 mod update;
@@ -24,7 +25,7 @@ use tauri_plugin_opener::OpenerExt;
 use feed::{Feed, FeedItem};
 use std::collections::BTreeMap;
 
-use store::{Account, Label, Settings, Store};
+use store::{Account, ChatMeta, Label, Settings, Store, Template};
 use tauri_plugin_dialog::DialogExt;
 
 pub const GEM_URL: &str = "https://web.gemspace.com/";
@@ -61,8 +62,9 @@ const ACC_PREFIX: &str = "acc-";
 
 /// Injected into every account webview before the page's own scripts. It reroutes the page's web
 /// notifications to Hovi Space (so they carry the account name), forwards account hotkeys and reads the
-/// chat list the page shows for "Все чаты" (shared/chats.js). It never types or sends anything.
-const INJECT_JS: &str = concat!(include_str!("inject.js"), "\n", include_str!("../../shared/chats.js"));
+/// chat list the page shows for "Все чаты" (shared/chats.js). It types only when the user asks: a broadcast
+/// (`__gemspaceSend`) or a template put into the message field without sending (`__gemspaceInsert`).
+const INJECT_JS: &str = concat!(include_str!("inject.js"), "\n", include_str!("../../shared/chats.js"), "\n", include_str!("../../shared/crm.js"));
 
 #[derive(Default)]
 pub(crate) struct Live {
@@ -83,10 +85,14 @@ pub(crate) struct Live {
     chats: HashMap<String, Vec<ChatRow>>,
     /// accounts whose Gem Space page has finished loading (a broadcast waits for it after waking one)
     loaded: HashSet<String>,
-    /// broadcast messages waiting for their page's answer: token -> (account, reply)
+    /// reminders already announced: chat -> the time they were set for (a moved reminder is announced again)
+    told: BTreeMap<String, i64>,
+    /// broadcast messages and templates waiting for their page's answer: token -> (account, reply)
     waiters: HashMap<String, (String, tokio::sync::oneshot::Sender<(bool, String)>)>,
     /// sign-in report: what the pages of not yet signed-in accounts load and how it ends (see diag())
     diag: std::collections::VecDeque<String>,
+    /// what each account's page was last given for Gem Space's own menus (shared/crm.js), to send only changes
+    meta_sent: HashMap<String, String>,
 }
 
 /// Adds a line to the sign-in report (Settings, "Отчёт о входе"). Addresses only, never message text.
@@ -158,6 +164,10 @@ struct StateView {
     chats: HashMap<String, Vec<ChatRow>>,
     labels: Vec<Label>,
     chat_labels: BTreeMap<String, Vec<String>>,
+    /// notes, statuses and reminders of chats
+    #[serde(flatten)]
+    meta: ChatMeta,
+    templates: Vec<Template>,
     /// broadcast messages each account sent today (the daily limit)
     sent_today: BTreeMap<String, u32>,
     update: Option<update::UpdateView>,
@@ -204,6 +214,8 @@ fn snapshot(app: &AppHandle) -> StateView {
         chats: live.chats.clone(),
         labels: store.labels.clone(),
         chat_labels: store.chat_labels.clone(),
+        meta: store.meta.clone(),
+        templates: store.templates.clone(),
         sent_today: if store.sent_day == chrono_day() { store.sent.clone() } else { BTreeMap::new() },
         update: live.update.clone(),
         version: app.package_info().version.to_string(),
@@ -214,6 +226,7 @@ fn snapshot(app: &AppHandle) -> StateView {
 pub(crate) fn publish(app: &AppHandle) {
     let view = snapshot(app);
     let _ = app.emit_to(RAIL, "state", &view);
+    push_meta(app);
     let title = if view.total_unread > 0 { format!("({}) Hovi Space", view.total_unread) } else { "Hovi Space".into() };
     if let Some(w) = main_window(app) {
         let _ = w.set_title(&title);
@@ -616,6 +629,7 @@ async fn remove_account(app: AppHandle, id: String) -> Result<(), String> {
         store.pending_delete.push(id.clone());
         let prefix = format!("{id}|");
         store.chat_labels.retain(|k, _| !k.starts_with(&prefix));
+        store.meta.forget_account(&id);
         store.sent.remove(&id);
         let mut live = st.live.lock().unwrap();
         live.unread.remove(&id);
@@ -823,6 +837,173 @@ async fn set_labels(app: AppHandle, labels: Vec<Label>, chat_labels: BTreeMap<St
     }
     save(&app);
     publish(&app);
+}
+
+/// Gives each loaded account's page what changed for its menus (see page_meta).
+fn push_meta(app: &AppHandle) {
+    let Some(window) = main_window(app) else { return };
+    let st = app.state::<AppState>();
+    let store = st.store.lock().unwrap().clone();
+    for wv in window.webviews() {
+        let Some(id) = id_of(wv.label()).map(str::to_string) else { continue };
+        let json = crm::page_meta(&store.meta, &store.templates, &id).to_string();
+        let fresh = st.live.lock().unwrap().meta_sent.get(&id) != Some(&json);
+        if fresh {
+            let _ = wv.eval(format!("window.__hoviMeta && window.__hoviMeta({json});"));
+            st.live.lock().unwrap().meta_sent.insert(id, json);
+        }
+    }
+}
+
+/// A change made in Gem Space's own menus (shared/crm.js via inject.js), see crm::MetaEdit.
+#[tauri::command]
+async fn acc_meta(app: AppHandle, webview: Webview, edit: crm::MetaEdit) {
+    let Some(id) = id_of(webview.label()).map(str::to_string) else { return };
+    if edit.get {
+        app.state::<AppState>().live.lock().unwrap().meta_sent.remove(&id);
+        push_meta(&app);
+        return;
+    }
+    {
+        let st = app.state::<AppState>();
+        let mut store = st.store.lock().unwrap();
+        if !store.accounts.iter().any(|a| a.id == id) {
+            return;
+        }
+        store.meta = store.meta.clone().apply(&id, &edit);
+        if let Some(templates) = edit.templates {
+            store.templates = crm::clean_templates(templates);
+        }
+    }
+    save(&app);
+    publish(&app);
+    remind_due(&app);
+}
+
+/// Saves the notes, statuses and reminders of chats (the rail edits them, Rust keeps them tidy).
+#[tauri::command]
+async fn set_chat_meta(app: AppHandle, meta: ChatMeta) {
+    {
+        let st = app.state::<AppState>();
+        st.store.lock().unwrap().meta = meta.clean();
+    }
+    save(&app);
+    publish(&app);
+    remind_due(&app);
+}
+
+/// Saves the quick-reply templates.
+#[tauri::command]
+async fn set_templates(app: AppHandle, templates: Vec<Template>) {
+    {
+        let st = app.state::<AppState>();
+        st.store.lock().unwrap().templates = crm::clean_templates(templates);
+    }
+    save(&app);
+    publish(&app);
+}
+
+/// Puts a template's text into the message field of a chat and never sends it: of the chat open in the
+/// account (`name` None: the open account's open chat) or of the chat `name` of the list, which its page
+/// opens first (shared/chats.js, `__gemspaceInsert`). The account's page gets the keyboard afterwards, so
+/// the user can change the text and press Enter.
+#[tauri::command]
+async fn template_insert(app: AppHandle, account: Option<String>, name: Option<String>, text: String) -> Result<(), String> {
+    let text = text.trim().to_string();
+    if text.is_empty() {
+        return Err("Пустой шаблон".into());
+    }
+    if text.chars().count() > crm::TEMPLATE_MAX {
+        return Err("Текст длиннее 4000 знаков".into());
+    }
+    let account = match account {
+        Some(a) => a,
+        None => app.state::<AppState>().store.lock().unwrap().active.clone().ok_or("Сначала откройте аккаунт")?,
+    };
+    let names: Vec<String> = {
+        let st = app.state::<AppState>();
+        let live = st.live.lock().unwrap();
+        let rows = live.chats.get(&account).cloned().unwrap_or_default();
+        if let Some(n) = &name {
+            if !rows.iter().any(|c| &c.name == n) {
+                return Err("Этого чата нет в списке аккаунта".into());
+            }
+        }
+        if live.waiters.values().any(|(a, _)| *a == account) {
+            return Err("Аккаунт ещё занят предыдущим сообщением".into());
+        }
+        rows.into_iter().map(|c| c.name).collect()
+    };
+    switch_to(&app, &account)?;
+    let wv = app.get_webview(&label_of(&account)).ok_or("Аккаунт не загружен")?;
+    let started = std::time::Instant::now();
+    while !app.state::<AppState>().live.lock().unwrap().loaded.contains(&account) {
+        if started.elapsed() > std::time::Duration::from_secs(30) {
+            return Err("Страница аккаунта не загрузилась".into());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
+    let token = store::new_id();
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let panel = {
+        let st = app.state::<AppState>();
+        let mut live = st.live.lock().unwrap();
+        live.waiters.insert(token.clone(), (account.clone(), tx));
+        live.panel
+    };
+    let j = |v: &serde_json::Value| serde_json::to_string(v).unwrap_or_else(|_| "null".into());
+    let (jn, jt, jl, jk) = (
+        j(&name.map(serde_json::Value::String).unwrap_or(serde_json::Value::Null)),
+        j(&serde_json::Value::String(text)),
+        j(&serde_json::Value::from(names)),
+        j(&serde_json::Value::String(token.clone())),
+    );
+    let _ = wv.eval(format!(
+        "{}if (window.__gemspaceInsert) window.__gemspaceInsert({jn}, {jt}, {jl}, {jk}); \
+         else if (window.__gemspaceSent) window.__gemspaceSent({{ token: {jk}, ok: false, error: 'Страница ещё не загрузилась' }});",
+        focus_js(panel)
+    ));
+    let answer = tokio::time::timeout(std::time::Duration::from_secs(45), rx).await;
+    app.state::<AppState>().live.lock().unwrap().waiters.remove(&token);
+    let _ = wv.set_focus();
+    match answer {
+        Ok(Ok((true, _))) => Ok(()),
+        Ok(Ok((false, error))) => Err(if error.is_empty() { "Не вставлено".into() } else { error.chars().take(200).collect() }),
+        _ => Err("Страница не ответила".into()),
+    }
+}
+
+/// Announces reminders that came due with a system notification (even with message notifications off: the
+/// user set them), once for each time they were set for. The rail shows them as due until they are moved,
+/// removed, or their chat is opened from "Все чаты".
+fn remind_due(app: &AppHandle) {
+    let now = feed::now_ms() as i64;
+    let st = app.state::<AppState>();
+    let (due, store) = {
+        let store = st.store.lock().unwrap().clone();
+        let live = st.live.lock().unwrap();
+        (crm::due(&store.meta.reminders, &live.told, now), store)
+    };
+    if due.is_empty() {
+        return;
+    }
+    for key in &due {
+        let Some(at) = store.meta.reminders.get(key).copied() else { continue };
+        st.live.lock().unwrap().told.insert(key.clone(), at);
+        let Some((acc, chat)) = key.split_once('|') else { continue };
+        let account = store.accounts.iter().find(|a| a.id == acc).map(|a| a.name.clone()).unwrap_or_default();
+        let note = store.meta.notes.get(key).map(|n| n.lines().next().unwrap_or("").chars().take(120).collect::<String>());
+        let body = match note {
+            Some(n) if !n.is_empty() => format!("{chat}\n{n}"),
+            _ => chat.to_string(),
+        };
+        let _ = app.notification().builder().title(format!("Напоминание · {account}")).body(body).show();
+    }
+    if let Some(w) = main_window(app) {
+        if !w.is_focused().unwrap_or(false) {
+            let _ = w.request_user_attention(Some(UserAttentionType::Informational));
+        }
+    }
 }
 
 /// Writes the backup file where the user picks; returns its path, or None when the dialog was closed.
@@ -1136,7 +1317,11 @@ pub fn run() {
             broadcast_send,
             acc_sent,
             acc_log,
-            login_report
+            acc_meta,
+            login_report,
+            set_chat_meta,
+            set_templates,
+            template_insert
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -1144,6 +1329,12 @@ pub fn run() {
             app.manage(AppState { store: Mutex::new(store), live: Mutex::new(Live::default()) });
             store::purge_deleted(&handle);
             update::start_checks(handle.clone());
+            // reminders of chats: checked every 15 seconds while Hovi Space runs, and at once after a start
+            let app_remind = handle.clone();
+            std::thread::spawn(move || loop {
+                std::thread::sleep(std::time::Duration::from_secs(15));
+                remind_due(&app_remind);
+            });
 
             let window = WindowBuilder::new(app, MAIN)
                 .title("Hovi Space")

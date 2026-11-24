@@ -7,7 +7,8 @@ import org.json.JSONObject
 data class Label(val id: String, var name: String, var color: Int)
 
 /**
- * The file "Резервная копия" writes and reads: accounts (without logins), settings and labels. The same
+ * The file "Резервная копия" writes and reads: accounts (without logins), settings, labels, and the notes,
+ * statuses, reminders and templates (Crm.kt). The same
  * format as on Windows ("hovi-space", format 1); settings are taken only from a file made on Android.
  */
 object Backup {
@@ -20,7 +21,7 @@ object Backup {
 
     fun safeId(id: String) = id.isNotEmpty() && id.length <= 40 && id.all { it.isLetterOrDigit() && it.code < 128 || it == '-' }
 
-    fun write(accounts: List<Account>, s: Settings, labels: List<Label>, chatLabels: Map<String, List<String>>): String {
+    fun write(accounts: List<Account>, s: Settings, labels: List<Label>, chatLabels: Map<String, List<String>>, meta: ChatMeta? = null): String {
         val acc = JSONArray()
         accounts.forEach { acc.put(JSONObject().put("id", it.id).put("name", it.name).put("color", hex(it.color)).put("pinned", it.pinned)) }
         val ls = JSONArray()
@@ -29,8 +30,10 @@ object Backup {
         chatLabels.forEach { (k, v) -> map.put(k, JSONArray(v)) }
         val settings = JSONObject().put("notifications", s.notifications).put("notifyPreview", s.notifyPreview).put("keepAlive", s.keepAlive)
             .put("sleepEnabled", s.sleepEnabled).put("maxAwake", s.maxAwake).put("uiScale", s.uiScale)
-        return JSONObject().put("app", "hovi-space").put("format", 1).put("platform", "android")
-            .put("accounts", acc).put("settings", settings).put("labels", ls).put("chat_labels", map).toString(2)
+        val o = JSONObject().put("app", "hovi-space").put("format", 1).put("platform", "android")
+            .put("accounts", acc).put("settings", settings).put("labels", ls).put("chat_labels", map)
+        meta?.write(o)
+        return o.toString(2)
     }
 
     /** Keeps well-formed labels (at most 30) and only assignments to labels that exist. */
@@ -54,7 +57,7 @@ object Backup {
      */
     fun restore(
         json: String, accounts: MutableList<Account>, s: Settings, labels: MutableList<Label>,
-        chatLabels: MutableMap<String, MutableList<String>>, newId: () -> String,
+        chatLabels: MutableMap<String, MutableList<String>>, meta: ChatMeta? = null, newId: () -> String,
     ): Pair<Int, Int> {
         val o = try { JSONObject(json) } catch (e: Exception) { throw IllegalArgumentException("Это не резервная копия Hovi Space") }
         if (o.optString("app") != "hovi-space" || o.optInt("format") != 1) throw IllegalArgumentException("Это не резервная копия Hovi Space")
@@ -103,6 +106,11 @@ object Backup {
             for (j in 0 until v.length()) v.optString(j).takeIf { it.isNotEmpty() && it !in slot }?.let { slot += it }
         }
         clean(labels, chatLabels)
+        // notes, statuses, reminders and templates: the file wins for a chat both have
+        meta?.read(o, merge = true) { key ->
+            val acc = key.substringBefore('|', "")
+            if (acc.isEmpty()) null else renamed[acc]?.let { "$it|${key.substringAfter('|')}" } ?: key
+        }
         return added to updated
     }
 }

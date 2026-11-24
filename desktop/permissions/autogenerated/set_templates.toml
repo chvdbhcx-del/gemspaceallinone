@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-templates"
+description = "Enables the set_templates command without any pre-configured scope."
+commands.allow = ["set_templates"]
+
+[[permission]]
+identifier = "deny-set-templates"
+description = "Denies the set_templates command without any pre-configured scope."
+commands.deny = ["set_templates"]

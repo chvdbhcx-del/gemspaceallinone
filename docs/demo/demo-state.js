@@ -57,6 +57,17 @@
     // labels the user put on chats ("Все чаты", right click)
     labels: [{ id: 'l1', name: 'Клиенты', color: '#26a69a' }, { id: 'l2', name: 'Ждут оплату', color: '#ffa726' }],
     chat_labels: { 'a1|Ирина Морозова': ['l2'], 'a2|Денис Карпов': ['l1'], 'a1|Кафе «Терраса»': ['l1', 'l2'], 'a3|Опт: заявки': ['l1'] },
+    // notes, statuses and reminders of chats, and the quick-reply templates (right click on a chat)
+    statuses: [{ id: 's-open', name: 'Открыт', color: '#3aa0ff' }, { id: 's-wait', name: 'Ждёт клиента', color: '#ffa726' }, { id: 's-done', name: 'Готово', color: '#66bb6a' }],
+    chat_status: { 'a2|Денис Карпов': 's-open', 'a2|Светлана': 's-open', 'a1|Ирина Морозова': 's-wait', 'a2|Павел': 's-wait', 'a4|Ольга': 's-done', 'a1|Лиза': 's-done' },
+    notes: { 'a1|Ирина Морозова': 'Оптовик, скидка 10%. Звонить после 15:00.', 'a3|Опт: заявки': 'Марк отвечает за закупки' },
+    reminders: (function () { var t = Date.now(); return { 'a2|Павел': t - 5 * 60000, 'a1|Ирина Морозова': new Date(new Date().setHours(24 + 9, 0, 0, 0)).getTime() }; })(),
+    templates: [
+      { id: 't1', title: 'Приветствие', text: 'Здравствуйте, {имя}! Чем могу помочь?' },
+      { id: 't2', title: 'Счёт отправлен', text: '{имя}, счёт отправил. Проверьте, пожалуйста, и напишите, если будут вопросы.' },
+      { id: 't3', title: 'Возврат оформлен', text: 'Возврат оформили, деньги придут на карту за 3–5 рабочих дней.' },
+      { id: 't4', title: 'Спасибо за заказ', text: 'Спасибо за заказ, {имя}! Как только отправим, пришлю номер для отслеживания.' },
+    ],
     version: '0.1.0',
   };
   if (/[?&]empty/.test(location.search)) { state.accounts = []; state.active = null; state.feed = []; state.chats = {}; state.total_unread = 0; }
