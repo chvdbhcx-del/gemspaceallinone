@@ -202,7 +202,7 @@ function renderBc() {
       ${bc.done ? '<button class="btn small" id="bc-close">Закрыть</button>' : '<button class="btn small danger" id="bc-stop">Стоп</button>'}</div>
     <div class="bc-prog"><span style="width:${Math.round(((ok + bad + skip) / total) * 100)}%"></span></div>
     ${bc.reason ? `<div class="bc-reason">${esc(bc.reason)}</div>` : ''}
-    <button class="bc-more" id="bc-more">${bc.open ? 'Скрыть список' : 'Показать список'}</button>
+    <button class="bc-more${bc.open ? ' open' : ''}" id="bc-more">${bc.open ? 'Скрыть список' : 'Показать список'}</button>
     ${bc.open ? `<div class="bc-items">${bc.items.map((x) => {
       const a = accounts.get(x.account);
       return `<div class="bc-item ${x.status}" title="${esc(x.error)}"><i class="bc-st">${icon_[x.status]}</i><span class="bc-dot" style="background:${esc(a ? a.color : '#888')}"></span><span class="bc-name">${esc(x.name)}</span>${x.error ? `<small>${esc(x.error)}</small>` : ''}</div>`;
