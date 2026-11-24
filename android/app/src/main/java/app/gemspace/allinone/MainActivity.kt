@@ -49,6 +49,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.webkit.ProfileStore
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import org.json.JSONArray
 import org.json.JSONObject
 
 /**
@@ -137,7 +138,7 @@ class MainActivity : AppCompatActivity() {
         if (uri == null) return@registerForActivityResult
         try {
             contentResolver.openOutputStream(uri, "wt")?.use {
-                it.write(Backup.write(store.accounts, store.settings, store.labels, store.chatLabels).toByteArray())
+                it.write(Backup.write(store.accounts, store.settings, store.labels, store.chatLabels, store.meta).toByteArray())
             }
             Toast.makeText(this, "Резервная копия сохранена", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
@@ -153,14 +154,14 @@ class MainActivity : AppCompatActivity() {
                 if (bytes.size > 5_000_000) throw IllegalArgumentException("Файл слишком большой для резервной копии Hovi Space")
                 String(bytes)
             } ?: return@registerForActivityResult
-            val (added, updated) = Backup.restore(text, store.accounts, store.settings, store.labels, store.chatLabels) { store.newId() }
+            val (added, updated) = Backup.restore(text, store.accounts, store.settings, store.labels, store.chatLabels, store.meta) { store.newId() }
             store.save()
             views.values.forEach { it.settings.textZoom = store.settings.uiScale }
             enforceSleep(); updateKeepAlive(); render(); refreshList()
             AlertDialog.Builder(this)
                 .setTitle("Восстановлено")
                 .setMessage(when {
-                    added == 0 && updated == 0 -> "В файле нет аккаунтов, восстановлены настройки и метки."
+                    added == 0 && updated == 0 -> "В файле нет аккаунтов, восстановлены настройки, метки и шаблоны."
                     added == 0 -> "Обновлено аккаунтов: $updated."
                     updated == 0 -> "Добавлено аккаунтов: $added. В них нужно войти заново."
                     else -> "Добавлено аккаунтов: $added, обновлено: $updated. В новые нужно войти заново."
@@ -205,11 +206,27 @@ class MainActivity : AppCompatActivity() {
         // cloud updates: a newer release is offered once (Updater.kt)
         pages.postDelayed({ if (!isFinishing) Updater.checkQuietly(this) }, 15_000)
         updateKeepAlive()
+        bcHandler.postDelayed(remindTick, 3_000)
+        openChatFrom(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         intent.getStringExtra(Notifier.EXTRA_ACCOUNT)?.let { if (store.find(it) != null) switchTo(it) }
+        openChatFrom(intent)
+    }
+
+    /** A reminder's notification names its chat: open it, once the account's page has its list. */
+    private fun openChatFrom(intent: Intent?) {
+        val account = intent?.getStringExtra(Notifier.EXTRA_ACCOUNT) ?: return
+        val chat = intent.getStringExtra(Notifier.EXTRA_CHAT) ?: return
+        intent.removeExtra(Notifier.EXTRA_CHAT)
+        if (store.find(account) == null) return
+        if (listOpen) closeList()
+        backToList = true
+        val key = "$account|$chat"
+        if (meta.isDue(key)) { meta.reminders.remove(key); saveMeta() }
+        pages.postDelayed({ openChat(account, chat) }, if (account in pageReady) 0L else 4_000L)
     }
 
     override fun onResume() {
@@ -257,6 +274,7 @@ class MainActivity : AppCompatActivity() {
         feedSlot = FrameLayout(this)
         bar.addView(feedSlot, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         bar.addView(scroll, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        bar.addView(toolTile("⚡", "Шаблоны") { templatesButton() })
         bar.addView(toolTile("⚙", "Настройки") { openSettings() })
         root.addView(bar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
@@ -592,13 +610,27 @@ class MainActivity : AppCompatActivity() {
 
     private fun fillChats() {
         val muted = ContextCompat.getColor(this, R.color.muted)
-        if (chatFilter != null && chatFilter != UNREAD && chatFilter?.startsWith(LABEL) != true && store.find(chatFilter!!) == null) chatFilter = null
+        if (chatFilter != null && chatFilter != UNREAD && chatFilter != REMIND && chatFilter?.startsWith(LABEL) != true && chatFilter?.startsWith(STATUS) != true &&
+            store.find(chatFilter!!) == null) chatFilter = null
         val all = store.accounts.flatMap { a -> (chats[a.id] ?: emptyList()).mapIndexed { i, c -> Triple(a, c, i) } }
             .sortedWith(compareByDescending<Triple<Account, ChatRow, Int>> { ChatRow.timeOf(it.second.time) }.thenBy { it.third })
         val unreadN = all.count { it.second.unread > 0 }
         addChip(chip("📣 Рассылка", 0, null, false) { broadcastDialog() })
         addChip(chip("Все", 0, null, chatFilter == null) { chatFilter = null; fillList() })
         addChip(chip("Непрочитанные", unreadN, null, chatFilter == UNREAD) { chatFilter = UNREAD; fillList() })
+        val withReminder = all.count { (a, c, _) -> meta.reminders.containsKey("${a.id}|${c.name}") }
+        if (withReminder > 0 || chatFilter == REMIND) {
+            val dueN = all.count { (a, c, _) -> meta.isDue("${a.id}|${c.name}") }
+            addChip(chip("🔔 Напоминания", if (dueN > 0) dueN else withReminder, null, chatFilter == REMIND) { chatFilter = REMIND; fillList() })
+        }
+        if (chatFilter?.startsWith(STATUS) == true && meta.statuses.none { STATUS + it.id == chatFilter }) chatFilter = null
+        for (s in meta.statuses) {
+            val n = all.count { (a, c, _) -> meta.chatStatus["${a.id}|${c.name}"] == s.id }
+            if (n == 0 && chatFilter != STATUS + s.id) continue
+            addChip(chip(s.name, n, s.color, chatFilter == STATUS + s.id) { chatFilter = STATUS + s.id; fillList() }.apply {
+                setOnLongClickListener { editStatus(s, null); true }
+            })
+        }
         if (chatFilter?.startsWith(LABEL) == true && store.labels.none { LABEL + it.id == chatFilter }) chatFilter = null
         for (l in store.labels) {
             val n = all.count { (a, c, _) -> l.id in labelIds(a.id, c.name) }
@@ -609,10 +641,13 @@ class MainActivity : AppCompatActivity() {
         for (a in store.accounts) addChip(chip(a.name, 0, a.color, chatFilter == a.id) { chatFilter = a.id; fillList() })
         val q = listQuery.trim().lowercase()
         val rows = all.filter { (a, c, _) ->
+            val key = "${a.id}|${c.name}"
             (chatFilter == null || (chatFilter == UNREAD && c.unread > 0) || chatFilter == a.id ||
+                (chatFilter == REMIND && meta.reminders.containsKey(key)) ||
+                (chatFilter?.startsWith(STATUS) == true && meta.chatStatus[key] == chatFilter!!.removePrefix(STATUS)) ||
                 (chatFilter?.startsWith(LABEL) == true && chatFilter!!.removePrefix(LABEL) in labelIds(a.id, c.name))) &&
-                (q.isEmpty() || c.name.lowercase().contains(q) || c.preview.lowercase().contains(q))
-        }
+                (q.isEmpty() || c.name.lowercase().contains(q) || c.preview.lowercase().contains(q) || meta.notes[key].orEmpty().lowercase().contains(q))
+        }.let { r -> if (chatFilter == REMIND) r.sortedBy { (a, c, _) -> meta.reminders["${a.id}|${c.name}"] ?: Long.MAX_VALUE } else r }
         if (rows.isEmpty()) {
             listRows.addView(TextView(this).apply {
                 text = when {
@@ -620,6 +655,8 @@ class MainActivity : AppCompatActivity() {
                     q.isNotEmpty() -> "Ничего не найдено"
                     chatFilter == UNREAD -> "Непрочитанных нет"
                     chatFilter?.startsWith(LABEL) == true -> "С этой меткой чатов нет. Метка ставится долгим нажатием на чат."
+                    chatFilter == REMIND -> "Напоминаний нет. Напоминание ставится долгим нажатием на чат."
+                    chatFilter?.startsWith(STATUS) == true -> "С этим статусом чатов нет. Статус ставится долгим нажатием на чат."
                     else -> "У этого аккаунта пока нет чатов в списке"
                 }
                 setTextColor(muted); setPadding(dp(16), dp(20), dp(16), dp(12)); gravity = Gravity.CENTER
@@ -629,7 +666,7 @@ class MainActivity : AppCompatActivity() {
         val missing = store.accounts.filter { chats[it.id].isNullOrEmpty() }
         listRows.addView(TextView(this).apply {
             text = (if (missing.isNotEmpty() && all.isNotEmpty()) missing.joinToString(", ") { it.name }.let { "Пока без списка: $it${if (it.endsWith(".")) "" else "."} Их чаты появятся, когда аккаунт загрузится. " } else "") +
-                "Долгое нажатие на чат ставит метки. Список берётся со страниц Gem Space и никуда не отправляется."
+                "Долгое нажатие на чат: шаблон, статус, напоминание, заметка и метки, они видны только вам. Список берётся со страниц Gem Space и никуда не отправляется."
             textSize = 12f; setTextColor(muted); setPadding(dp(12), dp(12), dp(12), 0)
         })
     }
@@ -649,11 +686,13 @@ class MainActivity : AppCompatActivity() {
                 android.content.res.ColorStateList.valueOf(ContextCompat.getColor(context, R.color.line)), null,
                 GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(Color.WHITE) })
             setOnClickListener {
+                val key = "${a.id}|${c.name}"
+                if (meta.isDue(key)) { meta.reminders.remove(key); saveMeta() } // the reminder did its job
                 closeList()
                 backToList = true
                 openChat(a.id, c.name)
             }
-            setOnLongClickListener { chatLabelsDialog(a, c.name); true }
+            setOnLongClickListener { chatActions(a, c.name); true }
         }
         val ava = FrameLayout(this)
         val circle = TextView(this).apply {
@@ -693,13 +732,26 @@ class MainActivity : AppCompatActivity() {
             setPadding(dp(7), dp(1), dp(7), dp(1))
             background = GradientDrawable().apply { cornerRadius = dp(6).toFloat(); setColor((tags[0].color and 0x00FFFFFF) or 0x33000000) }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(6) })
+        val key = "${a.id}|${c.name}"
+        val marks = (if (meta.notes.containsKey(key)) "📝" else "") + (meta.reminders[key]?.let { if (it <= System.currentTimeMillis()) "⏰" else "🔔" } ?: "")
+        if (marks.isNotEmpty()) top.addView(TextView(this).apply { text = marks; textSize = 11f },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(4) })
         top.addView(TextView(this).apply {
             text = c.time; textSize = 12f; setTextColor(if (c.unread > 0) accent else muted); setPadding(dp(8), 0, 0, 0)
             if (c.unread > 0) typeface = fontBold
         })
         texts.addView(top)
         val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        meta.status(key)?.let { s ->
+            bottom.addView(TextView(this).apply {
+                text = "● " + s.name; textSize = 11f; typeface = fontHeavy; setTextColor(s.color); maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END; maxWidth = dp(120)
+                setPadding(dp(6), 0, dp(7), 0)
+                background = GradientDrawable().apply { cornerRadius = dp(9).toFloat(); setStroke(dp(1), (s.color and 0x00FFFFFF) or 0x8C000000.toInt()) }
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(18)).apply { marginEnd = dp(6) })
+        }
         bottom.addView(TextView(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
             text = c.preview.ifEmpty { if (c.unread > 0) "Новое сообщение" else "" }
             textSize = 14.5f; setTextColor(muted); maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
@@ -878,6 +930,327 @@ class MainActivity : AppCompatActivity() {
         if (store.find(account) == null) return
         switchTo(account)
         views[account]?.evaluateJavascript("window.__gemspaceOpenChat && window.__gemspaceOpenChat(${JSONObject.quote(name)})", null)
+    }
+
+    // ---------- notes, statuses, reminders and templates (Crm.kt), kept in Store on this phone ----------
+
+    private val meta get() = store.meta
+
+    private fun saveMeta() {
+        meta.clean()
+        store.save()
+        refreshList()
+        remindCheck()
+    }
+
+    /** "сегодня в 18:00", "завтра в 9:00", "28 нояб. в 9:00" */
+    private fun remindText(at: Long): String {
+        val day = { ms: Long -> java.util.Calendar.getInstance().apply { timeInMillis = ms; set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0); set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0) }.timeInMillis }
+        val diff = Math.round((day(at) - day(System.currentTimeMillis())) / 86_400_000.0).toInt()
+        val ru = java.util.Locale.forLanguageTag("ru")
+        val hm = java.text.SimpleDateFormat("H:mm", ru).format(java.util.Date(at))
+        return when (diff) {
+            0 -> "сегодня в $hm"
+            1 -> "завтра в $hm"
+            -1 -> "вчера в $hm"
+            else -> java.text.SimpleDateFormat("d MMM", ru).format(java.util.Date(at)) + " в $hm"
+        }
+    }
+
+    private fun at9(daysAhead: Int): Long = java.util.Calendar.getInstance().apply {
+        add(java.util.Calendar.DAY_OF_YEAR, daysAhead); set(java.util.Calendar.HOUR_OF_DAY, 9); set(java.util.Calendar.MINUTE, 0)
+        set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0)
+    }.timeInMillis
+
+    private fun nextMonday9(): Long {
+        val dow = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK) // Sunday = 1, Monday = 2
+        val add = ((java.util.Calendar.MONDAY - dow + 7) % 7).let { if (it == 0) 7 else it }
+        return at9(add)
+    }
+
+    private val remindQuick: List<Pair<String, () -> Long>> get() = listOf(
+        "Через 1 час" to { System.currentTimeMillis() + 3_600_000L },
+        "Через 3 часа" to { System.currentTimeMillis() + 3 * 3_600_000L },
+        "Завтра в 9:00" to { at9(1) },
+        "В понедельник в 9:00" to { nextMonday9() },
+    )
+
+    /** Long press on a chat of "Все чаты": what to do with it. */
+    private fun chatActions(a: Account, name: String) {
+        val key = "${a.id}|$name"
+        val st = meta.status(key)
+        val at = meta.reminders[key]
+        val labelsN = labelIds(a.id, name).size
+        val items = arrayOf(
+            "Ответить шаблоном",
+            if (st != null) "Статус: ${st.name}" else "Статус",
+            if (at != null) "Напомнить (${remindText(at)})" else "Напомнить",
+            if (meta.notes[key].isNullOrEmpty()) "Заметка" else "Изменить заметку",
+            if (labelsN > 0) "Метки ($labelsN)" else "Метки",
+        )
+        AlertDialog.Builder(this).setTitle(name).setItems(items) { _, i ->
+            when (i) {
+                0 -> pickTemplate(a.id, name)
+                1 -> statusDialog(key)
+                2 -> remindDialog(key, name)
+                3 -> noteDialog(key, name, a)
+                else -> chatLabelsDialog(a, name)
+            }
+        }.setNegativeButton("Отмена", null).show()
+    }
+
+    private fun statusDialog(key: String) {
+        val cur = meta.chatStatus[key]
+        val names = meta.statuses.map { it.name }.toTypedArray()
+        val b = AlertDialog.Builder(this).setTitle("Статус")
+        if (names.isEmpty()) b.setMessage("Статусов нет. У чата один статус, например «В работе» или «Ждёт оплату».")
+        else b.setSingleChoiceItems(names, meta.statuses.indexOfFirst { it.id == cur }) { d, i ->
+            meta.chatStatus[key] = meta.statuses[i].id
+            saveMeta(); d.dismiss()
+        }
+        b.setNeutralButton("Новый статус…") { _, _ -> editStatus(null, key) }
+        if (cur != null) b.setNegativeButton("Без статуса") { _, _ -> meta.chatStatus.remove(key); saveMeta() }
+        else b.setNegativeButton("Отмена", null)
+        b.show()
+    }
+
+    /** A status's name and colour; for an existing one also "Удалить". [assignTo] gets a new status at once. */
+    private fun editStatus(s: Label?, assignTo: String?) {
+        if (s == null && meta.statuses.size >= ChatMeta.MAX_STATUSES) {
+            Toast.makeText(this, "Статусов не больше ${ChatMeta.MAX_STATUSES}", Toast.LENGTH_SHORT).show(); return
+        }
+        var color = s?.color ?: Store.COLORS[meta.statuses.size % Store.COLORS.size]
+        val input = EditText(this).apply {
+            setText(s?.name ?: ""); hint = "Например, В работе"; isSingleLine = true
+            filters = arrayOf(android.text.InputFilter.LengthFilter(30))
+        }
+        val swatches = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(14), 0, 0) }
+        fun paint() {
+            for (i in 0 until swatches.childCount) {
+                (swatches.getChildAt(i).background as GradientDrawable).setStroke(dp(3), if (Store.COLORS[i] == color) ContextCompat.getColor(this, R.color.fg) else Color.TRANSPARENT)
+            }
+        }
+        Store.COLORS.forEach { c ->
+            swatches.addView(View(this).apply {
+                background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(c) }
+                setOnClickListener { color = c; paint() }
+            }, LinearLayout.LayoutParams(dp(30), dp(30)).apply { marginEnd = dp(6) })
+        }
+        paint()
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(22), dp(8), dp(22), 0)
+            addView(input); addView(HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(swatches) })
+        }
+        val b = AlertDialog.Builder(this)
+            .setTitle(if (s == null) "Новый статус" else "Статус")
+            .setView(box)
+            .setPositiveButton(if (s == null) "Создать" else "Сохранить") { _, _ ->
+                val name = input.text.toString().trim()
+                if (name.isEmpty()) return@setPositiveButton
+                if (s != null) { s.name = name; s.color = color } else {
+                    val id = "s" + System.currentTimeMillis().toString(36)
+                    meta.statuses += Label(id, name, color)
+                    if (assignTo != null) meta.chatStatus[assignTo] = id
+                }
+                saveMeta()
+            }
+            .setNegativeButton("Отмена", null)
+        if (s != null) b.setNeutralButton("Удалить") { _, _ -> meta.statuses.remove(s); saveMeta() }
+        b.show()
+    }
+
+    private fun remindDialog(key: String, name: String) {
+        val cur = meta.reminders[key]
+        val quick = remindQuick
+        val items = (quick.map { it.first } + "Выбрать время…").toTypedArray()
+        val b = AlertDialog.Builder(this).setTitle(if (cur != null) "Напомнить · сейчас ${remindText(cur)}" else "Напомнить о чате «$name»")
+            .setItems(items) { _, i ->
+                if (i < quick.size) { meta.reminders[key] = quick[i].second(); saveMeta(); remindToast(key) }
+                else pickTime(key)
+            }
+        if (cur != null) b.setNegativeButton("Убрать напоминание") { _, _ -> meta.reminders.remove(key); saveMeta() }
+        else b.setNegativeButton("Отмена", null)
+        b.show()
+    }
+
+    private fun remindToast(key: String) {
+        meta.reminders[key]?.let { Toast.makeText(this, "Напомню ${remindText(it)}", Toast.LENGTH_SHORT).show() }
+    }
+
+    private fun pickTime(key: String) {
+        val c = java.util.Calendar.getInstance().apply { timeInMillis = meta.reminders[key] ?: at9(1) }
+        android.app.DatePickerDialog(this, { _, y, m, d ->
+            android.app.TimePickerDialog(this, picked@{ _, h, min ->
+                val at = java.util.Calendar.getInstance().apply { set(y, m, d, h, min, 0); set(java.util.Calendar.MILLISECOND, 0) }.timeInMillis
+                if (at < System.currentTimeMillis() - 60_000) { Toast.makeText(this, "Это время уже прошло", Toast.LENGTH_SHORT).show(); return@picked }
+                meta.reminders[key] = at; saveMeta(); remindToast(key)
+            }, c.get(java.util.Calendar.HOUR_OF_DAY), c.get(java.util.Calendar.MINUTE), true).show()
+        }, c.get(java.util.Calendar.YEAR), c.get(java.util.Calendar.MONTH), c.get(java.util.Calendar.DAY_OF_MONTH)).apply {
+            datePicker.minDate = System.currentTimeMillis() - 1000
+        }.show()
+    }
+
+    private fun noteDialog(key: String, name: String, a: Account) {
+        val cur = meta.notes[key].orEmpty()
+        val input = EditText(this).apply {
+            setText(cur); setSelection(cur.length)
+            hint = "Например: оптовик, скидка 10%, звонить после 15:00"
+            minLines = 4; maxLines = 10; gravity = Gravity.TOP or Gravity.START
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            filters = arrayOf(android.text.InputFilter.LengthFilter(ChatMeta.NOTE_MAX))
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(22), dp(8), dp(22), 0)
+            addView(input)
+            addView(TextView(context).apply {
+                text = "Видна только вам, в «Все чатах»."; textSize = 12f
+                setTextColor(ContextCompat.getColor(context, R.color.muted)); setPadding(dp(4), dp(6), 0, 0)
+            })
+        }
+        val b = AlertDialog.Builder(this).setTitle("Заметка · $name").setView(box)
+            .setPositiveButton("Сохранить") { _, _ ->
+                val t = input.text.toString().trim()
+                if (t.isEmpty()) meta.notes.remove(key) else meta.notes[key] = t
+                saveMeta()
+            }
+        if (cur.isNotEmpty()) b.setNeutralButton("Удалить") { _, _ -> meta.notes.remove(key); saveMeta() }
+        b.setNegativeButton("Отмена", null).show()
+        input.requestFocus()
+    }
+
+    // ---------- templates: put into the message field of a chat, the user sends it ----------
+
+    /** The "Шаблоны" tile on top: the open chat of the open account gets the template. */
+    private fun templatesButton() {
+        if (meta.templates.isEmpty() || store.active == null) templatesDialog() else pickTemplate(null, null)
+    }
+
+    private fun pickTemplate(account: String?, name: String?) {
+        if (meta.templates.isEmpty()) { templatesDialog(); return }
+        AlertDialog.Builder(this).setTitle(if (name != null) "Ответить «$name»" else "Вставить в открытый чат")
+            .setItems(meta.templates.map { it.title }.toTypedArray()) { _, i -> insertTemplate(meta.templates[i].text, account, name) }
+            .setNeutralButton("Изменить шаблоны…") { _, _ -> templatesDialog() }
+            .setNegativeButton("Отмена", null).show()
+    }
+
+    private var tplToken = ""
+    private var tplWaited = 0
+
+    private fun insertTemplate(text: String, account: String?, name: String?) {
+        val id = account ?: store.active ?: return
+        if (store.find(id) == null) return
+        if (name != null) {
+            if (listOpen) closeList()
+            backToList = true
+        }
+        switchTo(id)
+        tplWaited = 0
+        tplRun(id, name, text)
+    }
+
+    private fun tplRun(id: String, name: String?, text: String) {
+        val wv = views[id] ?: return
+        if (id !in pageReady) {
+            // a sleeping account was just woken: its page has to load first
+            if (tplWaited < 30_000) { tplWaited += 500; bcHandler.postDelayed({ tplRun(id, name, text) }, 500) }
+            else Toast.makeText(this, "Страница аккаунта не загрузилась", Toast.LENGTH_LONG).show()
+            return
+        }
+        val token = store.newId()
+        tplToken = token
+        val names = JSONArray((chats[id] ?: emptyList()).map { it.name }).toString()
+        val q = { v: String -> JSONObject.quote(v) }
+        wv.evaluateJavascript(
+            "if (window.__gemspaceInsert) window.__gemspaceInsert(${if (name != null) q(name) else "null"}, ${q(text)}, $names, ${q(token)}); " +
+                "else if (window.__gemspaceSent) window.__gemspaceSent({ token: ${q(token)}, ok: false, error: 'Страница ещё не загрузилась' });", null)
+        wv.requestFocus()
+    }
+
+    /** The page's answer for a template (bridge "sent"); false when the token is not a template's. */
+    private fun tplResult(token: String, ok: Boolean, error: String): Boolean {
+        if (tplToken.isEmpty() || token != tplToken) return false
+        tplToken = ""
+        if (!ok) Toast.makeText(this, "Шаблон не вставлен: ${error.ifEmpty { "ошибка" }}", Toast.LENGTH_LONG).show()
+        return true
+    }
+
+    private fun templatesDialog() {
+        val list = meta.templates
+        val b = AlertDialog.Builder(this).setTitle("Шаблоны")
+        if (list.isEmpty()) {
+            b.setMessage("Готовые ответы для всех аккаунтов. Шаблон вставляется в поле сообщения открытого чата, а отправляете вы сами. {имя} заменится на имя из чата.\n\nВставить: кнопка «Шаблоны» сверху или долгое нажатие на чат в «Все чатах».")
+                .setNeutralButton("Добавить примеры") { _, _ ->
+                    addTemplateExamples()
+                    templatesDialog()
+                }
+        } else {
+            b.setItems(list.map { "${it.title}\n${it.text.replace('\n', ' ').take(60)}" }.toTypedArray()) { _, i -> editTemplate(list[i]) }
+        }
+        b.setPositiveButton("Новый шаблон") { _, _ -> editTemplate(null) }
+            .setNegativeButton("Готово", null).show()
+    }
+
+    private fun addTemplateExamples() {
+        val base = System.currentTimeMillis().toString(36)
+        ChatMeta.EXAMPLES.forEachIndexed { i, (title, text) -> meta.templates += Template("t$base$i", title, text) }
+        saveMeta()
+    }
+
+    private fun editTemplate(t: Template?) {
+        if (t == null && meta.templates.size >= ChatMeta.MAX_TEMPLATES) {
+            Toast.makeText(this, "Шаблонов не больше ${ChatMeta.MAX_TEMPLATES}", Toast.LENGTH_SHORT).show(); return
+        }
+        val title = EditText(this).apply {
+            setText(t?.title ?: ""); hint = "Название, например Приветствие"; isSingleLine = true
+            filters = arrayOf(android.text.InputFilter.LengthFilter(40))
+        }
+        val text = EditText(this).apply {
+            setText(t?.text ?: ""); hint = "Здравствуйте, {имя}! …"
+            minLines = 4; maxLines = 10; gravity = Gravity.TOP or Gravity.START
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            filters = arrayOf(android.text.InputFilter.LengthFilter(ChatMeta.TEMPLATE_MAX))
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(22), dp(8), dp(22), 0)
+            addView(title); addView(text)
+            addView(TextView(context).apply {
+                text = "{имя} заменится на имя из чата, например «Ирина»."; textSize = 12f
+                setTextColor(ContextCompat.getColor(context, R.color.muted)); setPadding(dp(4), dp(6), 0, 0)
+            })
+        }
+        val b = AlertDialog.Builder(this).setTitle(if (t == null) "Новый шаблон" else "Шаблон").setView(box)
+            .setPositiveButton(if (t == null) "Создать" else "Сохранить") { _, _ ->
+                val body = text.text.toString().trim()
+                if (body.isEmpty()) { Toast.makeText(this, "Шаблон без текста не сохранён", Toast.LENGTH_SHORT).show(); return@setPositiveButton }
+                val head = title.text.toString().trim()
+                if (t != null) { t.title = head; t.text = body } else meta.templates += Template("t" + System.currentTimeMillis().toString(36), head, body)
+                saveMeta()
+                templatesDialog()
+            }
+            .setNegativeButton("Отмена") { _, _ -> templatesDialog() }
+        if (t != null) b.setNeutralButton("Удалить") { _, _ -> meta.templates.remove(t); saveMeta(); templatesDialog() }
+        b.show()
+    }
+
+    // ---------- reminders come due: a notification once for each time set, checked while Hovi Space runs ----------
+
+    private val told = HashMap<String, Long>()
+    private val remindTick = object : Runnable {
+        override fun run() {
+            remindCheck()
+            if (meta.reminders.isNotEmpty()) refreshList() // a bell turns red when its time comes
+            bcHandler.postDelayed(this, 20_000)
+        }
+    }
+
+    private fun remindCheck() {
+        val now = System.currentTimeMillis()
+        for (key in meta.due(told, now)) {
+            val at = meta.reminders[key] ?: continue
+            told[key] = at
+            val acc = store.find(key.substringBefore('|')) ?: continue
+            Notifier.reminder(this, acc, key.substringAfter('|'), meta.notes[key]?.lineSequence()?.firstOrNull()?.take(120).orEmpty())
+        }
     }
 
     // ---------- Рассылка: the user's text to chats they picked, one by one, with random pauses ----------
@@ -1801,6 +2174,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         if (o.optString("t") == "sent") {
+            if (tplResult(o.optString("token"), o.optBoolean("ok"), o.optString("error"))) return
             bcResult(id, o.optString("token"), o.optBoolean("ok"), o.optString("error"))
             return
         }
@@ -1843,6 +2217,7 @@ class MainActivity : AppCompatActivity() {
         feed.clear(a.id)
         chats.remove(a.id)
         store.chatLabels.keys.removeAll { it.startsWith("${a.id}|") }
+        store.meta.forget(a.id)
         store.sent.remove(a.id)
         Notifier.cancel(this, a.id)
         if (multiProfile) {
@@ -1904,6 +2279,9 @@ class MainActivity : AppCompatActivity() {
         private const val UNREAD = "\u0000unread"
         /** chatFilter of a label: LABEL + its id */
         private const val LABEL = "\u0000label:"
+        /** chatFilter of a status: STATUS + its id; REMIND: chats with a reminder, soonest first */
+        private const val STATUS = "\u0000status:"
+        private const val REMIND = "\u0000remind"
         private val CHAT_COLORS = listOf("#E53935", "#F4511E", "#FB8C00", "#43A047", "#00897B", "#039BE5", "#3949AB", "#8E24AA", "#D81B60", "#6D4C41")
 
         // geometry of the bar tiles, dp

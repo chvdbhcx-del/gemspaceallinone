@@ -29,6 +29,9 @@ fn main() {
         "acc_sent",
         "acc_log",
         "login_report",
+        "set_chat_meta",
+        "set_templates",
+        "template_insert",
     ])))
     .expect("failed to run tauri-build");
 }

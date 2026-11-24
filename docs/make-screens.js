@@ -1,7 +1,7 @@
 // README screenshots in demo mode, the way Hivogram's are made: the real rail UI (desktop/ui) fed with
 // made-up accounts (docs/demo/demo-state.js), a made-up chat where the app shows web.gemspace.com,
 // and a replica of the Android account strip. One dark theme; desktop 1440×900 @2x, phone 390×844 @3x.
-//   node docs/make-screens.js [d1,d2,d3,d4,d5,d6,d7,d8,a1,a2,a3,a4,a5,a6,a7,a8]      (Playwright with Chromium)
+//   node docs/make-screens.js [d1,d2,d3,d4,d5,d6,d7,d8,d9,a1,a2,a3,a4,a5,a6,a7,a8]      (Playwright with Chromium)
 //   python3 docs/make-grids.py                                   (Pillow) builds the captioned grids
 const fs = require('fs');
 const path = require('path');
@@ -49,6 +49,12 @@ async function shot(browser, key, file, opts, page, before) {
   await shot(b, 'd8', 'desktop-chats', D, 'docs/demo/desktop.html?chats', async (p) => {
     await p.waitForTimeout(500);
     await p.frameLocator('#rail').locator('.gs-row[data-n="Ирина Морозова"]').click(); // the chat open on the right
+  });
+  await shot(b, 'd9', 'desktop-templates', D, 'docs/demo/desktop.html?chats', async (p) => {
+    await p.waitForTimeout(500);
+    await p.frameLocator('#rail').locator('.gs-row[data-n="Ирина Морозова"]').click();
+    await p.evaluate(() => { const r = document.querySelector('#rail'); r.style.width = '100%'; r.nextElementSibling.style.display = 'none'; });
+    await p.frameLocator('#rail').locator('#tpl').evaluate(() => openOverlay('templates'));
   });
   await shot(b, 'd7', 'desktop-welcome', D, rail + '?empty');
   await shot(b, 'a1', 'android-main', P, 'docs/demo/phone.html');

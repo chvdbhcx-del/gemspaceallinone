@@ -75,15 +75,10 @@ impl Default for Settings {
     }
 }
 
-/// A label the user puts on chats of "Все чаты" ("Клиенты", "Оплата"), kept only on this computer.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct Label {
-    pub id: String,
-    pub name: String,
-    pub color: String,
-}
+pub use crate::crm::{clean_color, clean_labels, clean_name, ChatMeta, Label, Template};
+use crate::crm::{default_statuses, merge_templates, safe_id};
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(default)]
 pub struct Store {
     pub accounts: Vec<Account>,
@@ -97,6 +92,28 @@ pub struct Store {
     /// broadcast messages sent today per account, for the daily limit; `sent_day` is "YYYY-MM-DD" (UTC)
     pub sent_day: String,
     pub sent: BTreeMap<String, u32>,
+    /// notes, statuses and reminders of chats (crm.rs); a state file from before them gets the default statuses
+    #[serde(flatten)]
+    pub meta: ChatMeta,
+    /// quick-reply templates
+    pub templates: Vec<Template>,
+}
+
+impl Default for Store {
+    fn default() -> Self {
+        Store {
+            accounts: Vec::new(),
+            active: None,
+            settings: Settings::default(),
+            labels: Vec::new(),
+            chat_labels: BTreeMap::new(),
+            pending_delete: Vec::new(),
+            sent_day: String::new(),
+            sent: BTreeMap::new(),
+            meta: ChatMeta { statuses: default_statuses(), ..Default::default() },
+            templates: Vec::new(),
+        }
+    }
 }
 
 fn state_file(app: &AppHandle) -> tauri::Result<PathBuf> {
@@ -112,11 +129,7 @@ impl Store {
     pub fn load(app: &AppHandle) -> Store {
         let Ok(path) = state_file(app) else { return Store::default() };
         match fs::read_to_string(&path) {
-            Ok(s) => serde_json::from_str::<Store>(&s)
-                .map(|mut st| {
-                    st.settings.clamp();
-                    st
-                })
+            Ok(s) => Store::parse(&s)
                 .unwrap_or_else(|e| {
                     eprintln!("gemspace: {} is broken ({e}), starting empty", path.display());
                     let _ = fs::copy(&path, path.with_extension("json.broken"));
@@ -124,6 +137,18 @@ impl Store {
                 }),
             Err(_) => Store::default(),
         }
+    }
+
+    /// The state file's text; one written before statuses existed gets the default ones.
+    pub fn parse(s: &str) -> serde_json::Result<Store> {
+        let raw: serde_json::Value = serde_json::from_str(s)?;
+        let fresh = raw.get("statuses").is_none();
+        let mut st: Store = serde_json::from_value(raw)?;
+        if fresh {
+            st.meta.statuses = default_statuses();
+        }
+        st.settings.clamp();
+        Ok(st)
     }
 
     pub fn save(&self, app: &AppHandle) -> Result<(), String> {
@@ -135,49 +160,6 @@ impl Store {
         fs::write(&tmp, serde_json::to_vec_pretty(self).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
         fs::rename(&tmp, &path).map_err(|e| e.to_string())
     }
-}
-
-pub const MAX_LABELS: usize = 30;
-
-fn safe_id(id: &str) -> bool {
-    !id.is_empty() && id.len() <= 40 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
-}
-
-fn safe_color(c: &str) -> bool {
-    c.len() == 7 && c.starts_with('#') && c[1..].chars().all(|x| x.is_ascii_hexdigit())
-}
-
-/// An account colour as "#rrggbb"; anything else (it ends up in the rail's styles) becomes the first colour.
-pub fn clean_color(c: &str) -> String {
-    if safe_color(c) { c.to_lowercase() } else { "#3aa0ff".into() }
-}
-
-/// A name trimmed and cut to `max` characters.
-pub fn clean_name(name: &str, max: usize) -> String {
-    name.trim().chars().take(max).collect::<String>().trim_end().to_string()
-}
-
-/// Keeps only well-formed labels and assignments to labels that exist; trims names.
-pub fn clean_labels(labels: Vec<Label>, chat_labels: BTreeMap<String, Vec<String>>) -> (Vec<Label>, BTreeMap<String, Vec<String>>) {
-    let mut out: Vec<Label> = Vec::new();
-    for l in labels {
-        let name = clean_name(&l.name, 30);
-        if safe_id(&l.id) && safe_color(&l.color) && !name.is_empty() && !out.iter().any(|x| x.id == l.id) && out.len() < MAX_LABELS {
-            out.push(Label { id: l.id, name, color: l.color.to_lowercase() });
-        }
-    }
-    let mut map = BTreeMap::new();
-    for (key, ids) in chat_labels.into_iter().take(5000) {
-        if key.len() > 200 || !key.contains('|') {
-            continue;
-        }
-        let mut ids: Vec<String> = ids.into_iter().filter(|i| out.iter().any(|l| &l.id == i)).collect();
-        ids.dedup();
-        if !ids.is_empty() {
-            map.insert(key, ids);
-        }
-    }
-    (out, map)
 }
 
 /// The file "Резервная копия" writes: accounts (without logins), settings and labels. The same format on
@@ -195,6 +177,11 @@ pub struct Backup {
     pub labels: Vec<Label>,
     #[serde(default)]
     pub chat_labels: BTreeMap<String, Vec<String>>,
+    /// notes, statuses and reminders (files from before them have none)
+    #[serde(default, flatten)]
+    pub meta: ChatMeta,
+    #[serde(default)]
+    pub templates: Vec<Template>,
 }
 
 pub const BACKUP_APP: &str = "hovi-space";
@@ -209,6 +196,8 @@ impl Store {
             settings: serde_json::to_value(&self.settings).unwrap_or_default(),
             labels: self.labels.clone(),
             chat_labels: self.chat_labels.clone(),
+            meta: self.meta.clone(),
+            templates: self.templates.clone(),
         }
     }
 
@@ -253,15 +242,17 @@ impl Store {
                 None => labels.push(l),
             }
         }
+        // a chat key gets the id its account has here
+        let rekey = |key: &str| -> Option<String> {
+            let (acc, chat) = key.split_once('|')?;
+            Some(match renamed.get(acc) {
+                Some(new) => format!("{new}|{chat}"),
+                None => key.to_string(),
+            })
+        };
         let mut chat_labels = self.chat_labels.clone();
         for (key, ids) in b.chat_labels {
-            let key = match key.split_once('|') {
-                Some((acc, chat)) => match renamed.get(acc) {
-                    Some(new) => format!("{new}|{chat}"),
-                    None => key.clone(),
-                },
-                None => continue,
-            };
+            let Some(key) = rekey(&key) else { continue };
             let slot = chat_labels.entry(key).or_default();
             for i in ids {
                 if !slot.contains(&i) {
@@ -272,6 +263,8 @@ impl Store {
         let (labels, chat_labels) = clean_labels(labels, chat_labels);
         self.labels = labels;
         self.chat_labels = chat_labels;
+        self.meta.merge(b.meta, rekey);
+        self.templates = merge_templates(&self.templates, b.templates);
         Ok((added, updated))
     }
 }
@@ -366,6 +359,41 @@ mod tests {
         assert_eq!(b.settings.max_awake, 5);
         assert_eq!(b.labels.len(), 1);
         assert_eq!(b.chat_labels.get("k1-0|Ирина"), Some(&vec!["l1".to_string()]));
+    }
+
+    #[test]
+    fn old_state_files_get_statuses() {
+        let old = Store::parse(r##"{"accounts":[{"id":"k1-0","name":"Продажи","color":"#26a69a"}],"labels":[]}"##).unwrap();
+        assert_eq!(old.meta.statuses.len(), 3);
+        assert!(old.templates.is_empty());
+        let mut s = Store::default();
+        s.meta.statuses.clear(); // the user deleted them all: they stay deleted
+        s.meta.notes.insert("k1-0|Ирина".into(), "VIP".into());
+        s.templates.push(Template { id: "t1".into(), title: "Привет".into(), text: "Здравствуйте!".into() });
+        let back = Store::parse(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert!(back.meta.statuses.is_empty());
+        assert_eq!(back.meta.notes.get("k1-0|Ирина").map(String::as_str), Some("VIP"));
+        assert_eq!(back.templates.len(), 1);
+    }
+
+    #[test]
+    fn backup_carries_notes_statuses_and_templates() {
+        let mut a = Store { accounts: vec![acc("k1-0", "Продажи")], ..Default::default() };
+        a.meta.notes.insert("k1-0|Ирина".into(), "перезвонить".into());
+        a.meta.chat_status.insert("k1-0|Ирина".into(), "s-wait".into());
+        a.meta.reminders.insert("k1-0|Ирина".into(), 1_800_000_000_000);
+        a.templates.push(Template { id: "t1".into(), title: "Привет".into(), text: "Здравствуйте, {имя}!".into() });
+        let file = serde_json::to_string(&a.backup()).unwrap();
+        let mut b = Store::default();
+        b.restore(serde_json::from_str(&file).unwrap()).unwrap();
+        assert_eq!(b.meta.notes.get("k1-0|Ирина").map(String::as_str), Some("перезвонить"));
+        assert_eq!(b.meta.chat_status.get("k1-0|Ирина").map(String::as_str), Some("s-wait"));
+        assert_eq!(b.meta.reminders.get("k1-0|Ирина"), Some(&1_800_000_000_000));
+        assert_eq!(b.templates.len(), 1);
+        // a file from before these existed still restores
+        let old: Backup = serde_json::from_str(r#"{"app":"hovi-space","format":1,"platform":"windows","accounts":[]}"#).unwrap();
+        assert!(b.restore(old).is_ok());
+        assert_eq!(b.meta.statuses.len(), 3);
     }
 
     #[test]

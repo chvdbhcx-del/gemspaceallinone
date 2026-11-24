@@ -45,9 +45,12 @@ class Store(context: Context) {
     /** broadcast messages sent today per account (the daily limit); sentDay is "YYYY-MM-DD" */
     var sentDay = ""
     val sent = mutableMapOf<String, Int>()
+    /** notes, statuses, reminders and templates (Crm.kt) */
+    val meta = ChatMeta()
 
     init {
         load()
+        if (prefs.getString("state", null) == null) meta.statuses += ChatMeta.defaultStatuses()
     }
 
     private fun load() {
@@ -96,6 +99,12 @@ class Store(context: Context) {
         } catch (e: Exception) {
             labels.clear(); chatLabels.clear()
         }
+        // the same: a broken entry loses these, never the accounts
+        try {
+            meta.read(JSONObject(raw), merge = false)
+        } catch (e: Exception) {
+            meta.read(JSONObject(), merge = false)
+        }
     }
 
     fun save() {
@@ -121,6 +130,7 @@ class Store(context: Context) {
         val o = JSONObject().put("accounts", arr).put("active", active ?: "").put("settings", s)
             .put("labels", ls).put("chatLabels", map)
             .put("sentDay", sentDay).put("sent", JSONObject(sent as Map<*, *>))
+        meta.write(o)
         prefs.edit().putString("state", o.toString()).apply()
     }
 

@@ -8,11 +8,14 @@ const { Menu } = window.__TAURI__.menu;
 const COLORS = ['#3aa0ff', '#26a69a', '#7e57c2', '#ef5350', '#ffa726', '#66bb6a', '#ec407a', '#8d6e63'];
 const COLOR_NAMES = ['Голубой', 'Бирюзовый', 'Фиолетовый', 'Красный', 'Оранжевый', 'Зелёный', 'Розовый', 'Коричневый'];
 let state = { accounts: [], active: null, settings: {}, total_unread: 0 };
-let overlayKind = null; // null | 'welcome' | 'add' | 'edit' | 'remove' | 'settings' | 'update' | 'label' | 'broadcast'
+let overlayKind = null; // null | 'welcome' | 'add' | 'edit' | 'remove' | 'settings' | 'update' | 'label' | 'broadcast' | one of CRM_KINDS
+const CRM_KINDS = new Set(['note', 'remind', 'status', 'templates', 'template', 'notice']); // crm.js
 let panelOpen = false; // the chat list column next to the rail
 let chatQuery = '';
 let chatUnreadOnly = false;
 let labelFilter = null; // label id the chat list is narrowed to
+let statusFilter = null; // status id the chat list is narrowed to (crm.js)
+let remindOnly = false; // only chats with a reminder, soonest first
 let selectedChat = null; // 'account|name' of the chat opened from the list
 let feedFilter = null; // account id or null for all
 const feedSeen = new Set(); // feed rows already drawn, so only new ones slide in
@@ -78,7 +81,7 @@ function renderRail() {
   moveIndicator();
   // with no accounts the welcome screen has its own big button, and the feed has nothing to show
   const none = !state.accounts.length;
-  $('#feed').hidden = none; $('.sep').hidden = none; $('#add').hidden = none;
+  $('#feed').hidden = none; $('.sep').hidden = none; $('#add').hidden = none; $('#tpl').hidden = none;
   renderFeedButton();
   renderUpdateButton();
 }
@@ -106,6 +109,10 @@ function renderFeedButton() {
     b.appendChild(badge);
   }
   b.setAttribute('aria-label', 'Все чаты' + (n ? `, непрочитанных: ${n}` : ''));
+  // a reminder that came due: a bell on the tile until its chat is opened or the reminder moved
+  const due = typeof dueCount === 'function' ? dueCount() : 0;
+  b.querySelectorAll('.due-mark').forEach((x) => x.remove());
+  if (due) b.insertAdjacentHTML('beforeend', `<span class="due-mark" title="Напоминаний: ${due}">${icon(BELL_PATH)}</span>`);
   const f = (state.feed || []).length;
   const fn = $('#p-feed-n'); if (fn) fn.textContent = f ? (f > 99 ? '99+' : String(f)) : '';
   feedShown = n;
@@ -173,32 +180,50 @@ function renderChats() {
   $('#feed-chips').innerHTML = [
     `<button class="chip${!feedFilter && !chatUnreadOnly ? ' on' : ''}" data-k="all">Все</button>`,
     `<button class="chip${chatUnreadOnly ? ' on' : ''}" data-k="unread">Непрочитанные${unread ? ` <b class="u">${unread}</b>` : ''}</button>`,
-  ].concat((state.labels || []).map((l) => {
+  ].concat((() => {
+    const rem = rows.filter((r) => remindOf(r.account + '|' + r.name));
+    if (!rem.length && !remindOnly) return [];
+    const due = rem.filter((r) => isDue(r.account + '|' + r.name)).length;
+    return [`<button class="chip${remindOnly ? ' on' : ''}" data-k="remind" title="Чаты с напоминанием, ближайшие сверху">Напоминания <b${due ? ' class="u"' : ''}>${due || rem.length}</b></button>`];
+  })()).concat((state.statuses || []).map((s) => {
+    const n = rows.filter((r) => (statusOf(r.account + '|' + r.name) || {}).id === s.id).length;
+    if (!n && statusFilter !== s.id) return '';
+    return `<button class="chip${statusFilter === s.id ? ' on' : ''}" data-s="${esc(s.id)}" title="Правый клик: изменить или удалить"><i style="background:${esc(s.color)}"></i>${esc(s.name)} <b>${n}</b></button>`;
+  })).concat((state.labels || []).map((l) => {
     const n = rows.filter((r) => labelIds(r.account, r.name).includes(l.id)).length;
     return `<button class="chip tag-chip${labelFilter === l.id ? ' on' : ''}" data-l="${esc(l.id)}" title="Правый клик: изменить или удалить"><i class="sq" style="background:${esc(l.color)}"></i>${esc(l.name)}${n ? ` <b>${n}</b>` : ''}</button>`;
   })).concat(present.map((a) => `<button class="chip${feedFilter === a.id ? ' on' : ''}" data-a="${esc(a.id)}"><i style="background:${esc(a.color)}"></i>${esc(a.name)}</button>`)).join('');
   if (labelFilter && !(state.labels || []).some((l) => l.id === labelFilter)) labelFilter = null;
+  if (statusFilter && !(state.statuses || []).some((x) => x.id === statusFilter)) statusFilter = null;
   $('#feed-chips').querySelectorAll('.chip').forEach((c) => {
     c.onclick = () => {
-      if (c.dataset.k === 'all') { feedFilter = null; chatUnreadOnly = false; labelFilter = null; }
+      if (c.dataset.k === 'all') { feedFilter = null; chatUnreadOnly = false; labelFilter = null; statusFilter = null; remindOnly = false; }
       else if (c.dataset.k === 'unread') chatUnreadOnly = !chatUnreadOnly;
+      else if (c.dataset.k === 'remind') remindOnly = !remindOnly;
+      else if (c.dataset.s) statusFilter = statusFilter === c.dataset.s ? null : c.dataset.s;
       else if (c.dataset.l) labelFilter = labelFilter === c.dataset.l ? null : c.dataset.l;
       else feedFilter = feedFilter === c.dataset.a ? null : c.dataset.a;
       chatSeen.clear(); renderFeed();
     };
     if (c.dataset.l) c.oncontextmenu = (e) => { e.preventDefault(); labelMenu(c.dataset.l); };
+    if (c.dataset.s) c.oncontextmenu = (e) => { e.preventDefault(); statusMenu(c.dataset.s); };
   });
   $('#feed-clear').hidden = true;
   const missing = state.accounts.filter((a) => !(lists[a.id] || []).length).map((a) => a.name).join(', ');
   $('#feed-note').textContent = (missing ? `Пока без списка: ${missing}${missing.endsWith('.') ? '' : '.'} Их чаты появятся, когда аккаунт загрузится. ` : '')
-    + 'Правый клик по чату ставит метки. Список берётся со страниц Gem Space и никуда не отправляется.';
+    + 'Правый клик по чату: шаблон, статус, напоминание, заметка и метки, они видны только вам. Список берётся со страниц Gem Space и никуда не отправляется.';
   const q = chatQuery.trim().toLowerCase();
-  rows = rows.filter((r) => (!feedFilter || r.account === feedFilter) && (!chatUnreadOnly || r.unread) && (!q || r.name.toLowerCase().includes(q) || String(r.preview || '').toLowerCase().includes(q))
-    && (!labelFilter || labelIds(r.account, r.name).includes(labelFilter)));
-  rows.sort((a, b) => (b.at - a.at) || (a.account === b.account ? a.i - b.i : 0));
+  const keyOf = (r) => r.account + '|' + r.name;
+  rows = rows.filter((r) => (!feedFilter || r.account === feedFilter) && (!chatUnreadOnly || r.unread)
+    && (!q || r.name.toLowerCase().includes(q) || String(r.preview || '').toLowerCase().includes(q) || noteOf(keyOf(r)).toLowerCase().includes(q))
+    && (!labelFilter || labelIds(r.account, r.name).includes(labelFilter))
+    && (!statusFilter || (statusOf(keyOf(r)) || {}).id === statusFilter)
+    && (!remindOnly || remindOf(keyOf(r))));
+  rows.sort((a, b) => (remindOnly ? remindOf(keyOf(a)) - remindOf(keyOf(b)) : 0) || (b.at - a.at) || (a.account === b.account ? a.i - b.i : 0));
   if (!rows.length) {
-    box.innerHTML = q || chatUnreadOnly || labelFilter
-      ? `<div class="feed-empty"><b>${q ? 'Ничего не найдено' : labelFilter ? (chatUnreadOnly ? 'С этой меткой непрочитанных нет' : 'С этой меткой чатов нет') : 'Непрочитанных нет'}</b>${labelFilter && !q && !chatUnreadOnly ? '<span>Метка ставится правым кликом по чату.</span>' : ''}</div>`
+    const narrowed = labelFilter || statusFilter || remindOnly;
+    box.innerHTML = q || chatUnreadOnly || narrowed
+      ? `<div class="feed-empty"><b>${q ? 'Ничего не найдено' : chatUnreadOnly ? (narrowed ? 'Среди них непрочитанных нет' : 'Непрочитанных нет') : remindOnly ? 'Напоминаний нет' : statusFilter ? 'С этим статусом чатов нет' : 'С этой меткой чатов нет'}</b>${narrowed && !q && !chatUnreadOnly ? '<span>Ставится правым кликом по чату.</span>' : ''}</div>`
       : `<div class="feed-empty"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>
       <b>Список чатов ещё не загрузился</b><span>Он появится, когда откроются страницы аккаунтов. Если его нет и после входа, значит Gem Space поменял страницу: сохраните «Отчёт о входе» в настройках и пришлите его.</span></div>`;
     return;
@@ -210,16 +235,17 @@ function renderChats() {
     const ci = chatIni(c.name);
     const ava = c.avatar ? `<span class="cav img"><img src="${esc(c.avatar)}" alt="" referrerpolicy="no-referrer" data-i="${esc(ci)}"></span>`
       : `<span class="cav" style="background:${chatColor(c.name)}">${esc(ci)}</span>`;
-    return `<button class="gs-row${fresh ? ' new' : ''}${c.unread ? ' unread' : ''}${selectedChat === key ? ' selected' : ''}" data-a="${esc(c.account)}" data-n="${esc(c.name)}" title="${esc(c.name)} · ${esc(a.name)}">
+    return `<button class="gs-row${fresh ? ' new' : ''}${c.unread ? ' unread' : ''}${selectedChat === key ? ' selected' : ''}" data-a="${esc(c.account)}" data-n="${esc(c.name)}" title="${esc(c.name)} · ${esc(a.name)}${esc(metaTitle(key))}">
       <span class="cav-wrap">${ava}<i class="acc-dot" style="background:${esc(a.color)}">${esc(initials(a.name).slice(0, 1))}</i></span>
-      <span class="gs-main"><span class="gs-top"><span class="gs-name">${esc(c.name)}</span>${tagsHtml(c.account, c.name)}<span class="gs-time">${esc(c.time)}</span></span>
-      <span class="gs-bottom"><span class="gs-prev">${esc(c.preview || (c.unread ? 'Новое сообщение' : ''))}</span>${c.unread ? `<span class="cnt">${c.unread > 999 ? '999+' : c.unread}</span>` : ''}</span></span></button>`;
+      <span class="gs-main"><span class="gs-top"><span class="gs-name">${esc(c.name)}</span>${tagsHtml(c.account, c.name)}${marksHtml(key)}<span class="gs-time">${esc(c.time)}</span></span>
+      <span class="gs-bottom">${metaHtml(key)}<span class="gs-prev">${esc(c.preview || (c.unread ? 'Новое сообщение' : ''))}</span>${c.unread ? `<span class="cnt">${c.unread > 999 ? '999+' : c.unread}</span>` : ''}</span></span></button>`;
   }).join('');
   rows.forEach((c) => chatSeen.add(c.account + '|' + c.name));
   box.querySelectorAll('.cav.img img').forEach((im) => { im.onerror = () => { const sp = im.parentNode; sp.classList.remove('img'); sp.style.background = chatColor(sp.closest('.gs-row').dataset.n); sp.textContent = im.dataset.i; }; });
   box.querySelectorAll('.gs-row').forEach((r) => {
     r.onclick = async () => {
       selectedChat = r.dataset.a + '|' + r.dataset.n;
+      if (isDue(selectedChat)) setReminder(selectedChat, null); // the reminder did its job: the chat is open
       box.querySelectorAll('.gs-row.selected').forEach((x) => x.classList.remove('selected'));
       r.classList.add('selected');
       try { await invoke('chat_open', { account: r.dataset.a, name: r.dataset.n }); } catch (e) { alertErr(e); }
@@ -247,15 +273,6 @@ function toggleLabel(key, id) {
   map[key] = cur.includes(id) ? cur.filter((x) => x !== id) : cur.concat(id);
   if (!map[key].length) delete map[key];
   saveLabels(state.labels || [], map);
-}
-async function chatMenu(account, name) {
-  const key = account + '|' + name;
-  const has = labelIds(account, name);
-  const items = (state.labels || []).map((l) => ({ id: 'l-' + l.id, text: l.name, checked: has.includes(l.id), action: () => toggleLabel(key, l.id) }));
-  if (items.length) items.push({ item: 'Separator' });
-  items.push({ id: 'new-label', text: 'Новая метка…', action: () => openOverlay('label', { key }) });
-  const menu = await Menu.new({ items });
-  await menu.popup();
 }
 async function labelMenu(id) {
   const l = (state.labels || []).find((x) => x.id === id);
@@ -435,7 +452,7 @@ async function openOverlay(kind, a) {
       <p class="w-sub">Все ваши аккаунты Gem Space в одном окне</p>
       <div class="features">
         ${f('M12 1 3 5v6c0 5.5 3.8 10.7 9 12 5.2-1.3 9-6.5 9-12V5zm0 6a3 3 0 1 1 0 6 3 3 0 0 1 0-6zm0 14c-2.5-.8-4.6-2.7-5.6-5.1C7.8 14.6 10 14 12 14s4.2.6 5.6 1.9c-1 2.4-3.1 4.3-5.6 5.1z', 'Отдельный вход', 'У каждого аккаунта свои данные, как в разных браузерах')}
-        ${f('M4 4h12a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H9l-4 3.5V15H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm16 4a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-1v3l-3.5-3H10a2 2 0 0 1-1.6-.8L10 17h6a4 4 0 0 0 4-4z', 'Все чаты', 'Чаты всех аккаунтов в одном списке, с метками')}
+        ${f('M4 4h12a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H9l-4 3.5V15H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm16 4a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-1v3l-3.5-3H10a2 2 0 0 1-1.6-.8L10 17h6a4 4 0 0 0 4-4z', 'Все чаты', 'Чаты всех аккаунтов в одном списке, со статусами и заметками')}
         ${f('M12 22a2 2 0 0 0 2-2h-4a2 2 0 0 0 2 2zm6-6V11c0-3.1-1.6-5.6-4.5-6.3V4a1.5 1.5 0 0 0-3 0v.7C7.6 5.4 6 7.9 6 11v5l-2 2v1h16v-1z', 'Уведомления', 'С именем аккаунта, даже когда окно свёрнуто')}
         ${f('M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm6.9 6h-3a15.7 15.7 0 0 0-1.4-3.6A8 8 0 0 1 18.9 8zM12 4c.8 1.2 1.5 2.5 1.9 4h-3.8c.4-1.5 1.1-2.8 1.9-4zM4.3 14a8.2 8.2 0 0 1 0-4h3.4a16.5 16.5 0 0 0 0 4zm.8 2h3a15.7 15.7 0 0 0 1.4 3.6A8 8 0 0 1 5.1 16zm3-8h-3a8 8 0 0 1 4.4-3.6C8 5.6 7.6 6.8 8.1 8zM12 20c-.8-1.2-1.5-2.5-1.9-4h3.8c-.4 1.5-1.1 2.8-1.9 4zm2.3-6H9.7a14.7 14.7 0 0 1 0-4h4.6a14.7 14.7 0 0 1 0 4zm.3 5.6c.6-1.1 1.1-2.3 1.4-3.6h3a8 8 0 0 1-4.4 3.6zm1.7-5.6a16.5 16.5 0 0 0 0-4h3.4a8.2 8.2 0 0 1 0 4z', 'Свой прокси', 'SOCKS5 или HTTP отдельно для каждого аккаунта')}
       </div>
@@ -454,6 +471,9 @@ async function openOverlay(kind, a) {
     };
   } else if (kind === 'broadcast') {
     bcForm(body);
+  } else if (CRM_KINDS.has(kind)) {
+    crmOverlay(kind, body, a); // binds its own buttons, Отмена included
+    return;
   } else if (kind === 'label') {
     const l = a && a.label;
     const color = l ? l.color : COLORS[(state.labels || []).length % COLORS.length];
@@ -593,7 +613,7 @@ async function openOverlay(kind, a) {
       </div>
       <div class="set-label">Резервная копия</div>
       <div class="af-card set-card">
-        <div class="set-row"><span class="af-ic">${icon(SAVE_PATH)}</span><span class="af-txt"><b>Аккаунты, настройки и метки</b><small id="s-backup-res">Названия, цвета, прокси и порядок аккаунтов. Входы в файл не попадают: на новом компьютере в аккаунты нужно войти заново</small></span></div>
+        <div class="set-row"><span class="af-ic">${icon(SAVE_PATH)}</span><span class="af-txt"><b>Аккаунты, настройки, метки и шаблоны</b><small id="s-backup-res">Аккаунты с прокси и порядком, метки, статусы, заметки, напоминания и шаблоны. Входы в файл не попадают: на новом компьютере в аккаунты нужно войти заново</small></span></div>
         <div class="set-row set-btns"><button class="btn small" id="s-export">Сохранить в файл</button><button class="btn small" id="s-import">Восстановить из файла</button></div>
       </div>
       <div class="set-label">Вход не проходит?</div>
