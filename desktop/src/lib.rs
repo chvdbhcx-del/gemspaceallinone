@@ -1075,7 +1075,10 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)))
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_opener::init())
+        // links are opened by Rust (open_external, on_new_window of the accounts), not by the plugin's own
+        // click handler in every page: the Gem Space pages may not call the plugin (ACL), so their links
+        // (the Telegram bot link of the sign-in) went nowhere through it
+        .plugin(tauri_plugin_opener::Builder::new().open_js_links_on_click(false).build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
