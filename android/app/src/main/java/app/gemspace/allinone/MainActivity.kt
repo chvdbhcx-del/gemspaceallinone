@@ -1675,7 +1675,9 @@ class MainActivity : AppCompatActivity() {
             domStorageEnabled = true
             databaseEnabled = true
             mediaPlaybackRequiresUserGesture = false
-            setSupportMultipleWindows(false)
+            // sign-in windows (Telegram login, captcha) open in a dialog of this account, see onCreateWindow
+            setSupportMultipleWindows(true)
+            javaScriptCanOpenWindowsAutomatically = true
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             textZoom = store.settings.uiScale
             // look like mobile Chrome: some sites refuse the WebView marker
@@ -1698,7 +1700,7 @@ class MainActivity : AppCompatActivity() {
                 val url = request.url
                 if (!request.isForMainFrame) return false
                 val host = url.host ?: return false
-                if (url.scheme == "https" && (host == "gemspace.com" || host.endsWith(".gemspace.com"))) return false
+                if (SignIn.isSignInUrl(url.scheme, host, url.path)) return false
                 openExternal(url)
                 return true
             }
@@ -1708,6 +1710,13 @@ class MainActivity : AppCompatActivity() {
             }
         }
         wv.webChromeClient = object : WebChromeClient() {
+            override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: android.os.Message): Boolean {
+                val popup = signInPopup(id) ?: return false
+                (resultMsg.obj as WebView.WebViewTransport).webView = popup
+                resultMsg.sendToTarget()
+                return true
+            }
+
             override fun onReceivedTitle(view: WebView, title: String?) {
                 val n = Store.unreadFromTitle(title)
                 if (unread[id] != n) {
@@ -1859,6 +1868,63 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             Toast.makeText(this, "Не удалось скачать файл", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    /**
+     * A window the page opens (window.open, target=_blank). A sign-in window (Telegram login, captcha) shows
+     * as a full-screen dialog with the account's own profile, so its answer reaches the page through
+     * window.opener; any other link goes to the system browser and the window is dropped.
+     */
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun signInPopup(id: String): WebView? {
+        val popup = WebView(this)
+        if (multiProfile) WebViewCompat.setProfile(popup, profileName(id))
+        popup.settings.apply {
+            javaScriptEnabled = true; domStorageEnabled = true
+            setSupportMultipleWindows(false)
+            userAgentString = views[id]?.settings?.userAgentString ?: userAgentString
+        }
+        cookieManagerFor(id).setAcceptThirdPartyCookies(popup, true)
+        var dialog: android.app.Dialog? = null
+        fun close() {
+            val d = dialog
+            dialog = null
+            if (d != null) d.dismiss() else popup.post { popup.destroy() } // the dialog's dismiss destroys it
+        }
+        fun decide(uri: Uri): Boolean {
+            if (SignIn.isSignInUrl(uri.scheme, uri.host, uri.path)) {
+                if (dialog == null) {
+                    dialog = android.app.Dialog(this, android.R.style.Theme_DeviceDefault_NoActionBar).apply {
+                        setContentView(popup)
+                        setOnDismissListener { popup.post { popup.destroy() } }
+                        show()
+                    }
+                }
+                return true
+            }
+            return uri.scheme == "about"
+        }
+        fun leave(view: WebView, uri: Uri) {
+            view.stopLoading()
+            openExternal(uri)
+            close()
+        }
+        popup.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                if (!request.isForMainFrame || decide(request.url)) return false
+                leave(view, request.url)
+                return true
+            }
+
+            override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
+                val uri = Uri.parse(url ?: return)
+                if (!decide(uri)) leave(view, uri)
+            }
+        }
+        popup.webChromeClient = object : WebChromeClient() {
+            override fun onCloseWindow(window: WebView) { close() }
+        }
+        return popup
     }
 
     private fun openExternal(uri: Uri) {
