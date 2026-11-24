@@ -250,7 +250,7 @@ mod tests {
         assert_eq!(mine.chat_status.get("new|Павел").map(String::as_str), Some("s-vip"));
         assert!(mine.reminders.contains_key("new|Павел"));
         mine.forget_account("new");
-        assert!(mine.notes.get("new|Павел").is_none() && mine.chat_status.is_empty() && mine.reminders.is_empty());
+        assert!(!mine.notes.contains_key("new|Павел") && mine.chat_status.is_empty() && mine.reminders.is_empty());
         assert_eq!(mine.notes.len(), 1);
     }
 
