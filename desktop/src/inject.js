@@ -31,57 +31,66 @@
     (n._click || []).forEach(function (f) { try { f.call(n, ev); } catch (e) {} });
   };
 
-  function GsNotification(title, opts) {
-    var self = this;
-    this.title = String(title || '');
-    this.body = (opts && opts.body) || '';
-    this.tag = (opts && opts.tag) || '';
-    this.data = opts && opts.data;
-    this.onclick = this.onclose = this.onerror = this.onshow = null;
-    this._click = [];
-    var nid = 'n' + (++seq);
-    recent[nid] = this;
-    order.push(nid);
-    if (order.length > 100) delete recent[order.shift()];
-    notify(title, opts, nid);
-    setTimeout(function () {
-      if (typeof self.onshow === 'function') self.onshow(new Event('show'));
-    }, 0);
-  }
-  GsNotification.prototype.close = function () {};
-  GsNotification.prototype.addEventListener = function (type, f) {
-    if (type === 'click' && typeof f === 'function') this._click.push(f);
-  };
-  GsNotification.prototype.removeEventListener = function (type, f) {
-    if (type === 'click') this._click = this._click.filter(function (x) { return x !== f; });
-  };
-  GsNotification.prototype.dispatchEvent = function () { return true; };
-  GsNotification.permission = 'granted';
-  GsNotification.maxActions = 0;
-  GsNotification.requestPermission = function (cb) {
-    if (typeof cb === 'function') cb('granted');
-    return Promise.resolve('granted');
-  };
-  try {
-    Object.defineProperty(window, 'Notification', { value: GsNotification, configurable: true, writable: true });
-  } catch (e) {}
+  // Until the account is signed in, Hovi Space leaves the page exactly as in a browser: Gem Space's sign-in
+  // (Telegram bot, QR) must see the real Notification and permission APIs, not ours. shared/chats.js calls
+  // __gemspaceInstall once the chat list shows (signed in) and remembers it for this account.
+  var installed = false;
+  window.__gemspaceInstall = function () {
+    if (installed) return;
+    installed = true;
+    function GsNotification(title, opts) {
+      var self = this;
+      this.title = String(title || '');
+      this.body = (opts && opts.body) || '';
+      this.tag = (opts && opts.tag) || '';
+      this.data = opts && opts.data;
+      this.onclick = this.onclose = this.onerror = this.onshow = null;
+      this._click = [];
+      var nid = 'n' + (++seq);
+      recent[nid] = this;
+      order.push(nid);
+      if (order.length > 100) delete recent[order.shift()];
+      notify(title, opts, nid);
+      setTimeout(function () {
+        if (typeof self.onshow === 'function') self.onshow(new Event('show'));
+      }, 0);
+    }
+    GsNotification.prototype.close = function () {};
+    GsNotification.prototype.addEventListener = function (type, f) {
+      if (type === 'click' && typeof f === 'function') this._click.push(f);
+    };
+    GsNotification.prototype.removeEventListener = function (type, f) {
+      if (type === 'click') this._click = this._click.filter(function (x) { return x !== f; });
+    };
+    GsNotification.prototype.dispatchEvent = function () { return true; };
+    GsNotification.permission = 'granted';
+    GsNotification.maxActions = 0;
+    GsNotification.requestPermission = function (cb) {
+      if (typeof cb === 'function') cb('granted');
+      return Promise.resolve('granted');
+    };
+    try {
+      Object.defineProperty(window, 'Notification', { value: GsNotification, configurable: true, writable: true });
+    } catch (e) {}
 
-  if (window.ServiceWorkerRegistration && ServiceWorkerRegistration.prototype) {
-    ServiceWorkerRegistration.prototype.showNotification = function (title, opts) {
-      notify(title, opts);
-      return Promise.resolve();
-    };
-  }
-  if (navigator.permissions && navigator.permissions.query) {
-    var query = navigator.permissions.query.bind(navigator.permissions);
-    navigator.permissions.query = function (d) {
-      if (d && d.name === 'notifications') {
-        return Promise.resolve({ state: 'granted', name: 'notifications', onchange: null,
-          addEventListener: function () {}, removeEventListener: function () {} });
-      }
-      return query(d);
-    };
-  }
+    if (window.ServiceWorkerRegistration && ServiceWorkerRegistration.prototype) {
+      ServiceWorkerRegistration.prototype.showNotification = function (title, opts) {
+        notify(title, opts);
+        return Promise.resolve();
+      };
+    }
+    if (navigator.permissions && navigator.permissions.query) {
+      var query = navigator.permissions.query.bind(navigator.permissions);
+      navigator.permissions.query = function (d) {
+        if (d && d.name === 'notifications') {
+          return Promise.resolve({ state: 'granted', name: 'notifications', onchange: null,
+            addEventListener: function () {}, removeEventListener: function () {} });
+        }
+        return query(d);
+      };
+    }
+  };
+  try { if (localStorage.getItem('hovi-signed-in') === '1') window.__gemspaceInstall(); } catch (e) {}
 
   // the chat list read by shared/chats.js goes to the rail's "Все чаты"
   window.__gemspaceSendChats = function (chats) { invoke('acc_chats', { chats: chats }); };
@@ -89,6 +98,12 @@
   window.__gemspaceSent = function (r) { invoke('acc_sent', { token: String(r.token || ''), ok: !!r.ok, error: String(r.error || '') }); };
 
   window.addEventListener('keydown', function (e) {
+    // F12 or Ctrl+Shift+I: developer tools of this account, to see why something does not load
+    if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && !e.altKey && (e.key === 'I' || e.key === 'i'))) {
+      e.preventDefault();
+      invoke('acc_hotkey', { key: 'devtools' });
+      return;
+    }
     if (!e.ctrlKey || e.altKey || e.metaKey) return;
     var key = null;
     if (!e.shiftKey && e.key >= '1' && e.key <= '9') key = e.key;

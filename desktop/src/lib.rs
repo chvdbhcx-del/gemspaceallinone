@@ -861,6 +861,12 @@ fn handle_hotkey(app: &AppHandle, key: &str) {
     match key {
         "next" => cycle(app, 1),
         "prev" => cycle(app, -1),
+        "devtools" => {
+            let active = app.state::<AppState>().store.lock().unwrap().active.clone();
+            if let Some(wv) = active.and_then(|id| app.get_webview(&label_of(&id))) {
+                wv.open_devtools();
+            }
+        }
         k => {
             if let Ok(n) = k.parse::<usize>() {
                 if (1..=9).contains(&n) {

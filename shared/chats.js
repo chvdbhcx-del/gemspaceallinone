@@ -67,6 +67,11 @@
     timer = null;
     var list;
     try { list = read(); } catch (e) { return; }
+    // a chat list means the account is signed in: from now on Hovi Space reroutes its notifications (inject.js)
+    if (list.length && window.__gemspaceInstall) {
+      try { localStorage.setItem('hovi-signed-in', '1'); } catch (e) {}
+      window.__gemspaceInstall();
+    }
     var json = JSON.stringify(list);
     if (json === last) return;
     last = json;
