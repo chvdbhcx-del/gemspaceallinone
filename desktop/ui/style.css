@@ -368,3 +368,47 @@ div.set-row { cursor: default; }
 .set-btns .btn { flex: 1; }
 .gs-top .gs-name { flex: 0 1 auto; }
 .gs-top .gs-time { margin-left: auto; }
+
+/* broadcasts (рассылка): the form in the overlay and the progress card on top of "Все чаты" */
+.x svg { width: 20px; height: 20px; fill: currentColor; }
+.bc-form textarea { width: 100%; min-height: 110px; resize: vertical; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--card); color: var(--fg); font: 600 14px/1.45 var(--font); transition: border-color var(--fast) ease, box-shadow var(--fast) ease; }
+.bc-form textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.bc-n { color: var(--accent); text-transform: none; letter-spacing: 0; }
+.bc-chips { margin-bottom: 10px; }
+.bc-list { margin-top: 8px; max-height: 260px; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; }
+.bc-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; cursor: pointer; }
+.bc-row + .bc-row { border-top: 1px solid var(--line); }
+.bc-row:hover { background: var(--hover); }
+.bc-row input { width: 16px; height: 16px; accent-color: var(--accent); flex: none; margin: 0; }
+.bc-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.bc-name { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.bc-acc { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; padding-left: 8px; }
+.bc-empty { padding: 14px; text-align: center; }
+.bc-range { display: flex; align-items: center; gap: 6px; flex: none; }
+.bc-range input[type=number] { width: 64px; text-align: center; padding: 8px 6px; }
+.bc-range i { color: var(--muted); font-style: normal; }
+.bc-warn-ava { background: #ffa726; }
+.bc-warn-ava svg { width: 38px; height: 38px; fill: #fff; }
+.bc-tips { font-size: 13.5px; }
+.bc-tips ul { margin: 8px 0 0; padding-left: 20px; color: var(--muted); }
+.bc-tips li + li { margin-top: 4px; }
+.bc-bar { margin: 0 12px 10px; padding: 10px 12px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); }
+.bc-head { display: flex; align-items: center; gap: 10px; }
+.bc-ic { width: 32px; height: 32px; border-radius: 10px; background: var(--accent-soft); display: grid; place-items: center; flex: none; }
+.bc-ic svg { width: 18px; height: 18px; fill: var(--accent); }
+.bc-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.bc-txt small { color: var(--muted); font-size: 12px; }
+.bc-prog { height: 4px; border-radius: 2px; background: var(--line); margin-top: 10px; overflow: hidden; }
+.bc-prog span { display: block; height: 100%; background: var(--accent); transition: width var(--mid) var(--ease); }
+.bc-reason { margin-top: 8px; font-size: 12px; color: var(--danger); }
+.bc-more { margin-top: 6px; border: 0; background: none; padding: 2px 0; color: var(--muted); font: 700 12px var(--font); cursor: pointer; }
+.bc-more:hover { color: var(--fg); }
+.bc-items { max-height: 180px; overflow-y: auto; margin-top: 4px; }
+.bc-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; }
+.bc-item small { margin-left: auto; color: var(--danger); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 55%; }
+.bc-item.skip small { color: var(--muted); }
+.bc-st { width: 16px; text-align: center; font-style: normal; font-weight: 800; color: var(--muted); flex: none; }
+.bc-item.ok .bc-st { color: #2e9d5b; }
+.bc-item.err .bc-st { color: var(--danger); }
+.bc-item.sending .bc-name { color: var(--accent); }

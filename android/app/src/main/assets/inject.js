@@ -84,4 +84,8 @@
   window.__gemspaceSendChats = function (chats) {
     try { if (window.GemspaceBridge) GemspaceBridge.postMessage(JSON.stringify({ t: 'chats', chats: chats })); } catch (e) {}
   };
+  // the result of one message of a broadcast the user started (shared/chats.js, __gemspaceSend)
+  window.__gemspaceSent = function (r) {
+    try { if (window.GemspaceBridge) GemspaceBridge.postMessage(JSON.stringify({ t: 'sent', token: String(r.token || ''), ok: !!r.ok, error: String(r.error || '') })); } catch (e) {}
+  };
 })();

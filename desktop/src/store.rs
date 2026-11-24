@@ -35,11 +35,41 @@ pub struct Settings {
     pub close_to_tray: bool,
     /// interface size in percent, for the rail and the Gem Space pages (80..=150)
     pub ui_scale: u32,
+    /// broadcasts (рассылка): messages one account may send in a day
+    pub bc_limit: u32,
+    /// broadcasts: random pause between two messages, in seconds
+    pub bc_pause_min: u32,
+    pub bc_pause_max: u32,
+    /// the user has read the ban-risk warning
+    pub bc_warned: bool,
+}
+
+pub const BC_LIMIT_MAX: u32 = 300;
+pub const BC_PAUSE_FLOOR: u32 = 10;
+
+impl Settings {
+    /// Keeps the broadcast limits sane whatever the rail or a backup file says.
+    pub fn clamp(&mut self) {
+        self.bc_limit = self.bc_limit.clamp(1, BC_LIMIT_MAX);
+        self.bc_pause_min = self.bc_pause_min.clamp(BC_PAUSE_FLOOR, 600);
+        self.bc_pause_max = self.bc_pause_max.clamp(self.bc_pause_min, 900);
+    }
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { sleep_enabled: true, max_awake: 8, notifications: true, notify_preview: true, close_to_tray: true, ui_scale: 100 }
+        Self {
+            sleep_enabled: true,
+            max_awake: 8,
+            notifications: true,
+            notify_preview: true,
+            close_to_tray: true,
+            ui_scale: 100,
+            bc_limit: 50,
+            bc_pause_min: 25,
+            bc_pause_max: 70,
+            bc_warned: false,
+        }
     }
 }
 
@@ -62,6 +92,9 @@ pub struct Store {
     pub chat_labels: BTreeMap<String, Vec<String>>,
     /// accounts whose data folder still has to be deleted
     pub pending_delete: Vec<String>,
+    /// broadcast messages sent today per account, for the daily limit; `sent_day` is "YYYY-MM-DD" (UTC)
+    pub sent_day: String,
+    pub sent: BTreeMap<String, u32>,
 }
 
 fn state_file(app: &AppHandle) -> tauri::Result<PathBuf> {
@@ -193,6 +226,7 @@ impl Store {
         if b.platform == "windows" {
             if let Ok(s) = serde_json::from_value::<Settings>(b.settings) {
                 self.settings = Settings { max_awake: s.max_awake.clamp(1, 60), ui_scale: s.ui_scale.clamp(80, 150), ..s };
+                self.settings.clamp();
             }
         }
         let mut labels = self.labels.clone();

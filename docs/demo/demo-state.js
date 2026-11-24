@@ -12,7 +12,7 @@
       { id: 'a7', name: 'Склад', color: '#66bb6a', proxy: null, pinned: false, unread: 1, attention: false, awake: true },
     ],
     active: 'a1',
-    settings: { sleep_enabled: true, max_awake: 8, notifications: true, notify_preview: true, close_to_tray: true, ui_scale: 100 },
+    settings: { sleep_enabled: true, max_awake: 8, notifications: true, notify_preview: true, close_to_tray: true, ui_scale: 100, bc_limit: 50, bc_pause_min: 25, bc_pause_max: 70, bc_warned: false },
     total_unread: 19,
     feed: (function () {
       var t = Date.now();
@@ -68,8 +68,10 @@
   var listeners = [];
   window.__TAURI__ = {
     core: {
-      invoke: function (cmd) {
+      invoke: function (cmd, args) {
         if (cmd === 'get_state') return Promise.resolve(state);
+        // the demo's broadcast "sends" after a moment; a chat named Павел fails, to show an error row
+        if (cmd === 'broadcast_send') return new Promise(function (ok, no) { setTimeout(function () { args.name === 'Павел' ? no('В поле уже есть черновик, чат пропущен') : ok(1); }, 600); });
         return Promise.resolve(null);
       },
     },

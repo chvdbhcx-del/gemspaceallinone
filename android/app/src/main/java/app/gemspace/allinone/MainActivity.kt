@@ -218,6 +218,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        bcHandler.removeCallbacksAndMessages(null)
         views.values.forEach { it.destroy() }
         views.clear()
         stopService(Intent(this, KeepAliveService::class.java))
@@ -475,6 +476,16 @@ class MainActivity : AppCompatActivity() {
         listPanel.addView(listSearch, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)).apply {
             setMargins(dp(12), 0, dp(12), dp(8))
         })
+        bcCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; visibility = View.GONE; setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(14).toFloat(); setColor(ContextCompat.getColor(context, R.color.card))
+                setStroke(dp(1), ContextCompat.getColor(context, R.color.line))
+            }
+        }
+        listPanel.addView(bcCard, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            setMargins(dp(12), 0, dp(12), dp(8))
+        })
         listChips = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(dp(12), 0, dp(12), 0) }
         listPanel.addView(HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
@@ -558,6 +569,7 @@ class MainActivity : AppCompatActivity() {
         listChips.removeAllViews()
         listRows.removeAllViews()
         if (feedTab == "all") fillChats() else fillFeed()
+        renderBc()
         // only rows that were not on screen before slide in
         var k = 0
         for (i in 0 until listRows.childCount) {
@@ -577,6 +589,7 @@ class MainActivity : AppCompatActivity() {
         val all = store.accounts.flatMap { a -> (chats[a.id] ?: emptyList()).mapIndexed { i, c -> Triple(a, c, i) } }
             .sortedWith(compareByDescending<Triple<Account, ChatRow, Int>> { ChatRow.timeOf(it.second.time) }.thenBy { it.third })
         val unreadN = all.count { it.second.unread > 0 }
+        addChip(chip("📣 Рассылка", 0, null, false) { broadcastDialog() })
         addChip(chip("Все", 0, null, chatFilter == null) { chatFilter = null; fillList() })
         addChip(chip("Непрочитанные", unreadN, null, chatFilter == UNREAD) { chatFilter = UNREAD; fillList() })
         if (chatFilter?.startsWith(LABEL) == true && store.labels.none { LABEL + it.id == chatFilter }) chatFilter = null
@@ -609,7 +622,7 @@ class MainActivity : AppCompatActivity() {
         val missing = store.accounts.filter { chats[it.id].isNullOrEmpty() }
         listRows.addView(TextView(this).apply {
             text = (if (missing.isNotEmpty() && all.isNotEmpty()) "Пока без списка: ${missing.joinToString(", ") { it.name }}. " else "") +
-                "Долгое нажатие на чат ставит метки. Hovi Space только читает список, который показывает страница Gem Space, и никуда его не отправляет."
+                "Долгое нажатие на чат ставит метки. Hovi Space читает список, который показывает страница Gem Space, и никуда его не отправляет. Пишет в чаты он только в рассылке, которую запустили вы."
             textSize = 12f; setTextColor(muted); setPadding(dp(12), dp(12), dp(12), 0)
         })
     }
@@ -858,6 +871,262 @@ class MainActivity : AppCompatActivity() {
         if (store.find(account) == null) return
         switchTo(account)
         views[account]?.evaluateJavascript("window.__gemspaceOpenChat && window.__gemspaceOpenChat(${JSONObject.quote(name)})", null)
+    }
+
+    // ---------- Рассылка: the user's text to chats they picked, one by one, with random pauses ----------
+    // Only chats the accounts already list (never new contacts), within a daily limit per account. The page
+    // types and sends each message (shared/chats.js, __gemspaceSend) and answers through the bridge ("sent").
+    private class BcItem(val account: String, val name: String) { var status = "wait"; var error = "" }
+    private class Bc(val items: List<BcItem>, val text: String) {
+        var i = 0; var stop = false; var done = false; var nextAt = 0L; var reason = ""; var fails = 0; var token = ""
+    }
+    private var bc: Bc? = null
+    private val bcHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private lateinit var bcCard: LinearLayout
+
+    private fun bcPersonal(text: String, name: String): String {
+        val first = name.replace(Regex("[«»\"“”]"), "").trim().split(Regex("\\s+")).firstOrNull().orEmpty()
+        return text.replace(Regex("\\{имя\\}", RegexOption.IGNORE_CASE), Regex.escapeReplacement(first))
+    }
+
+    private fun numberField(v: Int) = EditText(this).apply {
+        setText(v.toString()); inputType = InputType.TYPE_CLASS_NUMBER; isSingleLine = true; gravity = Gravity.CENTER
+        filters = arrayOf(android.text.InputFilter.LengthFilter(3))
+    }
+
+    private fun broadcastDialog() {
+        if (bc?.done == false) { Toast.makeText(this, "Рассылка уже идёт", Toast.LENGTH_SHORT).show(); return }
+        val all = store.accounts.flatMap { a -> (chats[a.id] ?: emptyList()).mapIndexed { i, c -> Triple(a, c, i) } }
+            .sortedWith(compareByDescending<Triple<Account, ChatRow, Int>> { ChatRow.timeOf(it.second.time) }.thenBy { it.third })
+        if (all.isEmpty()) { Toast.makeText(this, "Список чатов ещё не загрузился", Toast.LENGTH_LONG).show(); return }
+        val muted = ContextCompat.getColor(this, R.color.muted)
+        val picked = LinkedHashSet<String>()
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(22), dp(8), dp(22), dp(4)) }
+        fun caption(t: String) = TextView(this).apply { text = t; textSize = 12f; typeface = fontHeavy; setTextColor(muted); setPadding(0, dp(14), 0, dp(4)) }
+        box.addView(TextView(this).apply {
+            text = "Текст уйдёт в выбранные чаты по очереди, с паузой между сообщениями. Только в чаты, которые уже есть в ваших аккаунтах."
+            textSize = 13f; setTextColor(muted)
+        })
+        box.addView(caption("ТЕКСТ"))
+        val textField = EditText(this).apply {
+            hint = "Здравствуйте, {имя}! …"; minLines = 3; maxLines = 8; gravity = Gravity.TOP or Gravity.START
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            filters = arrayOf(android.text.InputFilter.LengthFilter(4000))
+        }
+        box.addView(textField)
+        box.addView(TextView(this).apply { text = "{имя} заменится на имя из чата, например «Ирина»."; textSize = 12f; setTextColor(muted) })
+        val who = caption("КОМУ")
+        box.addView(who)
+        val checks = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        fun sync() {
+            for (i in 0 until checks.childCount) (checks.getChildAt(i) as android.widget.CheckBox).let { it.isChecked = it.tag in picked }
+            who.text = if (picked.isEmpty()) "КОМУ" else "КОМУ · ВЫБРАНО ${picked.size}"
+        }
+        val quick = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        fun quickChip(t: String, dot: Int?, onClick: () -> Unit) = quick.addView(chip(t, 0, dot, false) { onClick(); sync() },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)).apply { marginEnd = dp(6) })
+        for (l in store.labels) quickChip(l.name, l.color) { all.filter { (a, c, _) -> l.id in labelIds(a.id, c.name) }.forEach { (a, c, _) -> picked += "${a.id}|${c.name}" } }
+        quickChip("Все чаты", null) { all.forEach { (a, c, _) -> picked += "${a.id}|${c.name}" } }
+        quickChip("Снять все", null) { picked.clear() }
+        box.addView(HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(quick) })
+        for ((a, c, _) in all) {
+            val key = "${a.id}|${c.name}"
+            checks.addView(android.widget.CheckBox(this).apply {
+                tag = key
+                val sb = android.text.SpannableStringBuilder(c.name).append("  ")
+                val start = sb.length
+                sb.append("● ${a.name}")
+                sb.setSpan(android.text.style.ForegroundColorSpan(a.color), start, start + 1, 0)
+                sb.setSpan(android.text.style.ForegroundColorSpan(muted), start + 1, sb.length, 0)
+                text = sb
+                setOnCheckedChangeListener { v, on -> if (on) picked += v.tag as String else picked -= v.tag as String; who.text = if (picked.isEmpty()) "КОМУ" else "КОМУ · ВЫБРАНО ${picked.size}" }
+            })
+        }
+        box.addView(checks)
+        val s = store.settings
+        val pMin = numberField(s.bcPauseMin); val pMax = numberField(s.bcPauseMax); val lim = numberField(s.bcLimit)
+        box.addView(caption("ПАУЗА МЕЖДУ СООБЩЕНИЯМИ, СЕКУНД"))
+        box.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            addView(pMin, LinearLayout.LayoutParams(dp(72), ViewGroup.LayoutParams.WRAP_CONTENT))
+            addView(TextView(context).apply { text = "  –  "; setTextColor(muted) })
+            addView(pMax, LinearLayout.LayoutParams(dp(72), ViewGroup.LayoutParams.WRAP_CONTENT))
+            addView(TextView(context).apply { text = "  случайная, не меньше 10"; textSize = 12f; setTextColor(muted) })
+        })
+        box.addView(caption("НЕ БОЛЬШЕ В ДЕНЬ С ОДНОГО АККАУНТА"))
+        val usedToday = store.accounts.filter { store.sentToday(it.id) > 0 }.joinToString(", ") { "${it.name} ${store.sent[it.id]}" }
+        box.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            addView(lim, LinearLayout.LayoutParams(dp(72), ViewGroup.LayoutParams.WRAP_CONTENT))
+            if (usedToday.isNotEmpty()) addView(TextView(context).apply { text = "  сегодня: $usedToday"; textSize = 12f; setTextColor(muted) })
+        })
+        val dlg = AlertDialog.Builder(this)
+            .setTitle("Рассылка")
+            .setView(ScrollView(this).apply { addView(box) })
+            .setPositiveButton("Начать", null)
+            .setNegativeButton("Отмена", null)
+            .create()
+        dlg.setOnShowListener {
+            dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val body = textField.text.toString().trim()
+                if (body.isEmpty()) { textField.error = "Напишите текст"; textField.requestFocus(); return@setOnClickListener }
+                if (picked.isEmpty()) { Toast.makeText(this, "Выберите хотя бы один чат", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
+                s.bcPauseMin = pMin.text.toString().toIntOrNull() ?: 25
+                s.bcPauseMax = pMax.text.toString().toIntOrNull() ?: 70
+                s.bcLimit = lim.text.toString().toIntOrNull() ?: 50
+                s.clampBroadcast()
+                store.save()
+                val order = all.map { (a, c, _) -> BcItem(a.id, c.name) }.filter { "${it.account}|${it.name}" in picked }
+                dlg.dismiss()
+                val start = { bc = Bc(order, body); renderBc(); bcStep() }
+                if (s.bcWarned) start() else bcWarn(start)
+            }
+        }
+        dlg.show()
+    }
+
+    /** Shown once, before the first broadcast. */
+    private fun bcWarn(start: () -> Unit) {
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(22), dp(8), dp(22), 0) }
+        box.addView(TextView(this).apply {
+            text = "Правила Gem Space запрещают автоматические и массовые рассылки. Если Gem Space сочтёт рассылку спамом, он может заблокировать аккаунт без предупреждения.\n\n" +
+                "Чтобы снизить риск:\n• пишите тем, кто ждёт сообщения от вас, а не всем подряд;\n• не ставьте паузу меньше 20–30 секунд и большой дневной лимит;\n" +
+                "• меняйте текст, {имя} делает сообщения разными;\n• сначала попробуйте на одном-двух своих чатах."
+            textSize = 14f
+        })
+        val ok = android.widget.CheckBox(this).apply { text = "Понимаю риск. Ответственность за рассылку на мне"; setPadding(0, dp(8), 0, 0) }
+        box.addView(ok, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12) })
+        val dlg = AlertDialog.Builder(this)
+            .setTitle("Риск блокировки")
+            .setView(ScrollView(this).apply { addView(box) })
+            .setPositiveButton("Продолжить") { _, _ -> store.settings.bcWarned = true; store.save(); start() }
+            .setNegativeButton("Отмена", null)
+            .create()
+        dlg.setOnShowListener {
+            val b = dlg.getButton(AlertDialog.BUTTON_POSITIVE)
+            b.isEnabled = false
+            ok.setOnCheckedChangeListener { _, on -> b.isEnabled = on }
+        }
+        dlg.show()
+    }
+
+    private fun bcSkip(run: Bc, it: BcItem, why: String) {
+        it.status = "skip"; it.error = why; run.i++
+        renderBc()
+        bcHandler.post { if (bc === run) bcStep() }
+    }
+
+    private fun bcStep() {
+        val run = bc ?: return
+        if (run.stop || run.i >= run.items.size) { bcFinish(run); return }
+        val it = run.items[run.i]
+        if (store.find(it.account) == null) { bcSkip(run, it, "Аккаунт удалён"); return }
+        if (chats[it.account]?.any { c -> c.name == it.name } != true) { bcSkip(run, it, "Чата нет в списке аккаунта"); return }
+        if (store.sentToday(it.account) >= store.settings.bcLimit) { bcSkip(run, it, "Дневной лимит аккаунта"); return }
+        it.status = "sending"
+        renderBc()
+        switchTo(it.account)
+        val token = store.newId()
+        run.token = token
+        val wv = views[it.account]
+        if (wv == null) { bcResult(it.account, token, false, "Аккаунт не загружен"); return }
+        val q = { v: String -> JSONObject.quote(v) }
+        wv.evaluateJavascript(
+            "if (window.__gemspaceSend) window.__gemspaceSend(${q(it.name)}, ${q(bcPersonal(run.text, it.name))}, ${q(token)}); " +
+                "else if (window.__gemspaceSent) window.__gemspaceSent({ token: ${q(token)}, ok: false, error: 'Страница ещё не загрузилась' });", null)
+        bcHandler.postDelayed({ if (bc === run && run.token == token) bcResult(it.account, token, false, "Страница не ответила") }, 45_000)
+    }
+
+    /** The page's answer for the message in flight (bridge "sent"). */
+    private fun bcResult(account: String, token: String, ok: Boolean, error: String) {
+        val run = bc ?: return
+        if (run.token.isEmpty() || run.token != token) return
+        val it = run.items.getOrNull(run.i) ?: return
+        if (it.account != account) return
+        run.token = ""
+        if (ok) {
+            it.status = "ok"; run.fails = 0
+            store.sent[account] = store.sentToday(account) + 1
+            store.save()
+        } else {
+            it.status = "err"; it.error = error.take(200).ifEmpty { "Не отправлено" }
+            if (++run.fails >= 3) { run.stop = true; run.reason = "Три ошибки подряд, рассылка остановлена. Похоже, Gem Space поменял страницу или аккаунт недоступен." }
+        }
+        run.i++
+        if (run.stop || run.i >= run.items.size) { bcFinish(run); return }
+        val s = store.settings
+        val ms = if (ok) ((s.bcPauseMin + Math.random() * (s.bcPauseMax - s.bcPauseMin)) * 1000).toLong() else 3000L
+        run.nextAt = System.currentTimeMillis() + ms
+        renderBc()
+        bcHandler.postDelayed({ if (bc === run) { run.nextAt = 0; bcStep() } }, ms)
+    }
+
+    private fun bcFinish(run: Bc) {
+        if (run.done) return
+        run.items.forEach { if (it.status == "wait") { it.status = "skip"; it.error = "Остановлено" } }
+        run.done = true; run.nextAt = 0
+        renderBc()
+        val ok = run.items.count { it.status == "ok" }
+        Toast.makeText(this, "Рассылка закончена: отправлено $ok из ${run.items.size}", Toast.LENGTH_LONG).show()
+    }
+
+    private val bcTick = object : Runnable {
+        override fun run() { if ((bc?.nextAt ?: 0L) > 0L) renderBc() }
+    }
+
+    /** The progress card on top of "Все чаты": counts, countdown, Стоп, and each chat's result. */
+    private fun renderBc() {
+        val run = bc
+        bcCard.removeAllViews()
+        bcHandler.removeCallbacks(bcTick)
+        if (run == null || feedTab != "all") { bcCard.visibility = View.GONE; return }
+        bcCard.visibility = View.VISIBLE
+        val fg = ContextCompat.getColor(this, R.color.fg)
+        val muted = ContextCompat.getColor(this, R.color.muted)
+        val accent = ContextCompat.getColor(this, R.color.accent)
+        val ok = run.items.count { it.status == "ok" }
+        val bad = run.items.count { it.status == "err" }
+        val skip = run.items.count { it.status == "skip" }
+        val left = if (run.nextAt > 0) ((run.nextAt - System.currentTimeMillis()) / 1000).coerceAtLeast(0) else 0
+        val line = if (run.done) "Готово: отправлено $ok из ${run.items.size}" + (if (bad > 0) ", ошибок $bad" else "") + (if (skip > 0) ", пропущено $skip" else "")
+            else "Отправлено $ok из ${run.items.size}" + (if (bad > 0) ", ошибок $bad" else "") + (if (left > 0) " · следующее через $left с" else " · отправляется…")
+        bcCard.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(TextView(context).apply { text = "Рассылка"; typeface = fontHeavy; textSize = 14f; setTextColor(fg) })
+                addView(TextView(context).apply { text = line; textSize = 12f; setTextColor(muted) })
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(TextView(context).apply {
+                text = if (run.done) "Закрыть" else "Стоп"; typeface = fontHeavy; textSize = 13f
+                setTextColor(if (run.done) fg else accent); setPadding(dp(14), dp(8), dp(14), dp(8))
+                background = GradientDrawable().apply { cornerRadius = dp(16).toFloat(); setStroke(dp(1), ContextCompat.getColor(context, R.color.line)) }
+                setOnClickListener {
+                    if (run.done) { bc = null; renderBc() } else {
+                        run.stop = true; run.reason = "Остановлено вами"
+                        if (run.token.isEmpty()) bcFinish(run) else renderBc()
+                    }
+                }
+            })
+        })
+        val done = (ok + bad + skip).toFloat() / run.items.size
+        bcCard.addView(LinearLayout(this).apply {
+            background = GradientDrawable().apply { cornerRadius = dp(2).toFloat(); setColor(ContextCompat.getColor(context, R.color.line)) }
+            addView(View(context).apply { background = GradientDrawable().apply { cornerRadius = dp(2).toFloat(); setColor(accent) } },
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, done.coerceAtLeast(0.001f)))
+            addView(View(context), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, (1f - done).coerceAtLeast(0.001f)))
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(4)).apply { topMargin = dp(8); bottomMargin = dp(4) })
+        if (run.reason.isNotEmpty()) bcCard.addView(TextView(this).apply { text = run.reason; textSize = 12f; setTextColor(accent) })
+        for (it in run.items) {
+            val mark = when (it.status) { "ok" -> "✓"; "err" -> "!"; "skip" -> "–"; "sending" -> "…"; else -> "  " }
+            bcCard.addView(TextView(this).apply {
+                text = "$mark  ${it.name}" + (if (it.error.isNotEmpty()) " — ${it.error}" else "")
+                textSize = 12.5f; isSingleLine = true; ellipsize = android.text.TextUtils.TruncateAt.END
+                setTextColor(when (it.status) { "err" -> accent; "sending" -> fg; "ok" -> fg; else -> muted })
+                setPadding(0, dp(2), 0, dp(2))
+            })
+        }
+        if (run.nextAt > 0) bcHandler.postDelayed(bcTick, 1000)
     }
 
     /** A row of choices with a sliding accent pill under the chosen one. */
@@ -1504,6 +1773,10 @@ class MainActivity : AppCompatActivity() {
             if (unreadChats() != before) renderFeedTile()
             return
         }
+        if (o.optString("t") == "sent") {
+            bcResult(id, o.optString("token"), o.optBoolean("ok"), o.optString("error"))
+            return
+        }
         if (o.optString("t") != "notify") return
         val account = store.find(id) ?: return
         val added = feed.push(id, o.optString("title"), o.optString("body"), o.optString("nid"), System.currentTimeMillis())
@@ -1542,6 +1815,7 @@ class MainActivity : AppCompatActivity() {
         feed.clear(a.id)
         chats.remove(a.id)
         store.chatLabels.keys.removeAll { it.startsWith("${a.id}|") }
+        store.sent.remove(a.id)
         Notifier.cancel(this, a.id)
         if (multiProfile) {
             // the profile can be deleted only once no WebView uses it; the destroy above is processed on the next frames

@@ -21,8 +21,10 @@
 <aside id="panel" hidden>
   <div class="p-head">
     <div class="seg p-tabs" id="p-tabs"><button type="button" data-t="all">Все чаты</button><button type="button" data-t="new">Лента<b id="p-feed-n"></b></button><span class="seg-pill"></span></div>
+    <button id="p-bc" class="x" title="Рассылка" aria-label="Рассылка"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10v4a1 1 0 0 0 1 1h2l4 5h2V4h-2L6 9H4a1 1 0 0 0-1 1zm13.5 2A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z"/></svg></button>
     <button id="p-close" class="x" title="Закрыть (Esc)">✕</button>
   </div>
+  <div id="bc-bar" class="bc-bar" hidden></div>
   <label class="p-search"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 3a7 7 0 0 1 5.6 11.2l4.6 4.6-1.4 1.4-4.6-4.6A7 7 0 1 1 10 3zm0 2a5 5 0 1 0 0 10 5 5 0 0 0 0-10z"/></svg><input id="p-q" placeholder="Поиск по чатам" autocomplete="off"></label>
   <div class="feed-bar"><div id="feed-chips" class="chips"></div><button class="btn small" id="feed-clear">Очистить</button></div>
   <div id="feed-list"></div>
@@ -38,5 +40,6 @@
 </section>
 
 <script src="app.js"></script>
+<script src="broadcast.js"></script>
 </body>
 </html>

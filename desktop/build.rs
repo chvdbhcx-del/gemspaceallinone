@@ -22,9 +22,11 @@ fn main() {
         "set_labels",
         "backup_export",
         "backup_import",
+        "broadcast_send",
         "acc_notify",
         "acc_chats",
         "acc_hotkey",
+        "acc_sent",
     ])))
     .expect("failed to run tauri-build");
 }
