@@ -27,12 +27,12 @@
 }
 @media (prefers-color-scheme: light) {
   :root {
-    --bg: #ffffff;
-    --rail: #f4f4f5;
+    --bg: #f6f5f8;
+    --rail: #ecebf0;
     --fg: #18181b;
     --muted: #6e6d73;
     --card: #ffffff;
-    --line: #e4e4e7;
+    --line: #e0dfe5;
     --hover: rgba(0, 0, 0, .05);
     color-scheme: light;
   }
@@ -68,7 +68,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 #indicator { position: absolute; left: -6px; width: 4px; height: 28px; border-radius: 0 4px 4px 0; background: var(--accent);
   transition: transform var(--mid) var(--ease), opacity var(--fast) ease; opacity: 0; pointer-events: none; }
 /* marks sit on the avatar's corners, the same place on every tile */
-.badge { position: absolute; top: 1px; left: 38px; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--accent);
+.badge { position: absolute; top: 1px; left: 38px; min-width: 20px; height: 20px; padding: 1px 6px 0; border-radius: 10px; background: var(--accent);
   color: #fff; font-size: 11px; font-weight: 800; display: grid; place-items: center; border: 2px solid var(--rail);
   font-variant-numeric: tabular-nums; }
 .badge.pop { animation: pop 320ms var(--ease); }
@@ -295,7 +295,8 @@ div.set-row { cursor: default; }
   border-left: 1px solid var(--line); border-right: 1px solid var(--line); z-index: 5; animation: panel-in var(--mid) var(--ease) both; }
 .p-head { display: flex; align-items: center; gap: 8px; padding: 12px 12px 8px; }
 .p-tabs { flex: 1; }
-.p-tabs b { margin-left: 6px; background: var(--accent); color: #fff; border-radius: 8px; padding: 0 6px; font-size: 11px; }
+.p-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; line-height: 18px; }
+.p-tabs b { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; box-sizing: border-box; background: var(--accent); color: #fff; border-radius: 9px; padding: 1px 5px 0; font-size: 11px; line-height: 1; font-variant-numeric: tabular-nums; }
 .p-tabs button.on b { background: #fff; color: var(--accent); }
 .p-tabs b:empty { display: none; }
 .p-search { display: flex; align-items: center; gap: 8px; margin: 0 12px; padding: 0 12px; height: 38px; border-radius: 19px; background: var(--card);
@@ -307,7 +308,7 @@ div.set-row { cursor: default; }
 #panel #feed-list { flex: 1; overflow-y: auto; margin: 0; padding: 4px 6px 12px; gap: 2px; scrollbar-width: thin; user-select: text; }
 #panel #feed-note { margin: 0 12px 10px; }
 #panel .feed-row { margin: 0 6px; width: auto; }
-.chip b.u { background: var(--accent); color: #fff; border-radius: 8px; padding: 0 6px; font-size: 11px; }
+.chip b.u { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; min-width: 18px; height: 18px; background: var(--accent); color: #fff; border-radius: 9px; padding: 1px 5px 0; font-size: 11px; line-height: 1; }
 /* rows look like Gem Space's own chat list */
 .gs-row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 64px; padding: 8px 10px; border: 0; border-radius: 12px; background: none;
   text-align: left; transition: background var(--fast) ease; }
@@ -327,7 +328,7 @@ div.set-row { cursor: default; }
 .gs-time { flex: none; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .gs-prev { flex: 1; min-width: 0; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .gs-row.unread .gs-time { color: var(--accent); font-weight: 700; }
-.cnt { background: var(--accent); color: #fff; border-radius: 10px; min-width: 20px; height: 20px; padding: 0 6px; font-size: 11.5px; font-weight: 800;
+.cnt { background: var(--accent); color: #fff; border-radius: 10px; min-width: 20px; height: 20px; padding: 2px 6px 0; font-size: 11.5px; font-weight: 800;
   display: grid; place-items: center; flex: none; }
 @keyframes panel-in { from { opacity: 0; transform: translateX(-12px); } }
 @keyframes spin-in { from { opacity: 0; transform: rotate(-120deg) scale(.6); } }
@@ -360,6 +361,7 @@ div.set-row { cursor: default; }
 .tag { --c: var(--accent); font-size: 11px; font-weight: 800; line-height: 18px; padding: 0 7px; border-radius: 6px; white-space: nowrap;
   color: var(--c); background: color-mix(in srgb, var(--c) 20%, transparent); overflow: hidden; text-overflow: ellipsis; max-width: 110px; }
 .tag.more { --c: var(--muted); }
+@media (prefers-color-scheme: light) { .tag { color: color-mix(in srgb, var(--c) 62%, #000); background: color-mix(in srgb, var(--c) 18%, #fff); } }
 .chip i.sq { border-radius: 3px; }
 .tag-ava svg { width: 34px; height: 34px; fill: #fff; }
 .set-btns { gap: 8px; padding-top: 0; }
