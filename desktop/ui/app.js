@@ -81,7 +81,7 @@ function renderRail() {
   moveIndicator();
   // with no accounts the welcome screen has its own big button, and the feed has nothing to show
   const none = !state.accounts.length;
-  $('#feed').hidden = none; $('.sep').hidden = none; $('#add').hidden = none; $('#tpl').hidden = none;
+  $('#feed').hidden = none; $('.sep').hidden = none; $('#add').hidden = none;
   renderFeedButton();
   renderUpdateButton();
 }

@@ -28,6 +28,7 @@ fn main() {
         "acc_hotkey",
         "acc_sent",
         "acc_log",
+        "acc_meta",
         "login_report",
         "set_chat_meta",
         "set_templates",

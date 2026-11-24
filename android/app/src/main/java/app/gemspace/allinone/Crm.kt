@@ -90,6 +90,48 @@ class ChatMeta {
         clean()
     }
 
+    /** What the page of [account] shows in Gem Space's own menus (shared/crm.js), the same as on Windows. */
+    fun page(account: String): JSONObject {
+        val p = "$account|"
+        fun mine(m: Map<String, Any>) = JSONObject().also { o -> m.forEach { (k, v) -> if (k.startsWith(p)) o.put(k.removePrefix(p), v) } }
+        val st = JSONArray()
+        statuses.forEach { st.put(JSONObject().put("id", it.id).put("name", it.name).put("color", Backup.hex(it.color))) }
+        val tp = JSONArray()
+        templates.forEach { tp.put(JSONObject().put("id", it.id).put("title", it.title).put("text", it.text)) }
+        return JSONObject().put("statuses", st).put("templates", tp)
+            .put("notes", mine(notes)).put("status", mine(chatStatus)).put("reminders", mine(reminders))
+    }
+
+    /**
+     * A change made in the page of [account] (shared/crm.js, bridge "meta"): the note, status or reminder of
+     * one of its chats ("" or 0 removes it), or the statuses or templates. The same as crm::MetaEdit on Windows.
+     */
+    fun apply(account: String, e: JSONObject) {
+        val chat = e.optString("chat").trim()
+        if (chat.isNotEmpty() && chat.length <= 80) {
+            val key = "$account|$chat"
+            if (e.has("note")) e.optString("note").let { if (it.isBlank()) notes.remove(key) else notes[key] = it }
+            if (e.has("status")) e.optString("status").let { if (it.isEmpty()) chatStatus.remove(key) else chatStatus[key] = it }
+            if (e.has("remind")) e.optLong("remind").let { if (it <= 0) reminders.remove(key) else reminders[key] = it }
+        }
+        e.optJSONArray("statuses")?.let { a ->
+            statuses.clear()
+            for (i in 0 until a.length()) {
+                val j = a.optJSONObject(i) ?: continue
+                val c = Backup.color(j.optString("color")) ?: continue
+                statuses += Label(j.optString("id"), j.optString("name"), c)
+            }
+        }
+        e.optJSONArray("templates")?.let { a ->
+            templates.clear()
+            for (i in 0 until a.length()) {
+                val j = a.optJSONObject(i) ?: continue
+                templates += Template(j.optString("id"), j.optString("title"), j.optString("text"))
+            }
+        }
+        clean()
+    }
+
     /** Reminders due at [now] that were not announced for that time yet ([told]: chat -> the time announced). */
     fun due(told: Map<String, Long>, now: Long): List<String> =
         reminders.filter { (k, at) -> at <= now && told[k] != at }.keys.sorted()

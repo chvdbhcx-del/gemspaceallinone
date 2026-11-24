@@ -254,10 +254,15 @@
   // or first opens the chat `name` of the list, and never sends it: the user reads it and presses "Отправить"
   // in Gem Space. {имя} becomes the first word of the open chat's name, found among `names` (the account's
   // chats) by the title on screen; when no name is known it stays as typed, for the user to fill in.
-  // Answers like a broadcast message, with __gemspaceSent({token, ok, error}).
+  // Answers like a broadcast message, with __gemspaceSent({token, ok, error}), or calls `token` back when it is a
+  // function (a template picked in the page's own menus, shared/crm.js).
   window.__gemspaceInsert = function (name, body, names, token) {
     function answer(ok, error) {
-      try { if (window.__gemspaceSent) window.__gemspaceSent({ token: token, ok: ok, error: error || '' }); } catch (e) {}
+      try {
+        // from the page itself (shared/crm.js): a callback instead of a token for Hovi Space
+        if (typeof token === 'function') token(ok, error || '');
+        else if (window.__gemspaceSent) window.__gemspaceSent({ token: token, ok: ok, error: error || '' });
+      } catch (e) {}
     }
     function done(ok, error) {
       sending = false;

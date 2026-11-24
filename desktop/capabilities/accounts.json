@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "accounts",
-  "description": "Gem Space pages in the account webviews: notifications, account hotkeys, the read-only chat list and the result of a broadcast message or a template and the sign-in report, nothing else.",
+  "description": "Gem Space pages in the account webviews: notifications, account hotkeys, the read-only chat list and the result of a broadcast message or a template, the sign-in report, and the statuses, reminders, notes and templates edited in the page, nothing else.",
   "webviews": ["acc-*"],
   "remote": { "urls": ["https://web.gemspace.com/*", "https://*.gemspace.com/*"] },
-  "permissions": ["allow-acc-notify", "allow-acc-chats", "allow-acc-hotkey", "allow-acc-sent", "allow-acc-log"]
+  "permissions": ["allow-acc-notify", "allow-acc-chats", "allow-acc-hotkey", "allow-acc-sent", "allow-acc-log", "allow-acc-meta"]
 }

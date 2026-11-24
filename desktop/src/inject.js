@@ -272,6 +272,8 @@
   window.__gemspaceSendChats = function (chats) { invoke('acc_chats', { chats: chats }); };
   // the result of one message of a broadcast the user started (shared/chats.js, __gemspaceSend)
   window.__gemspaceSent = function (r) { invoke('acc_sent', { token: String(r.token || ''), ok: !!r.ok, error: String(r.error || '') }); };
+  // a status, reminder, note or template changed in Gem Space's own menus (shared/crm.js), or the page asks for them
+  window.__gemspaceMeta = function (e) { invoke('acc_meta', { edit: e }); };
 
   window.addEventListener('keydown', function (e) {
     // F12 or Ctrl+Shift+I: developer tools of this account, to see why something does not load

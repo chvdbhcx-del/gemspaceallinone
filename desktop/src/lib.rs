@@ -64,7 +64,7 @@ const ACC_PREFIX: &str = "acc-";
 /// notifications to Hovi Space (so they carry the account name), forwards account hotkeys and reads the
 /// chat list the page shows for "Все чаты" (shared/chats.js). It types only when the user asks: a broadcast
 /// (`__gemspaceSend`) or a template put into the message field without sending (`__gemspaceInsert`).
-const INJECT_JS: &str = concat!(include_str!("inject.js"), "\n", include_str!("../../shared/chats.js"));
+const INJECT_JS: &str = concat!(include_str!("inject.js"), "\n", include_str!("../../shared/chats.js"), "\n", include_str!("../../shared/crm.js"));
 
 #[derive(Default)]
 pub(crate) struct Live {
@@ -91,6 +91,8 @@ pub(crate) struct Live {
     waiters: HashMap<String, (String, tokio::sync::oneshot::Sender<(bool, String)>)>,
     /// sign-in report: what the pages of not yet signed-in accounts load and how it ends (see diag())
     diag: std::collections::VecDeque<String>,
+    /// what each account's page was last given for Gem Space's own menus (shared/crm.js), to send only changes
+    meta_sent: HashMap<String, String>,
 }
 
 /// Adds a line to the sign-in report (Settings, "Отчёт о входе"). Addresses only, never message text.
@@ -224,6 +226,7 @@ fn snapshot(app: &AppHandle) -> StateView {
 pub(crate) fn publish(app: &AppHandle) {
     let view = snapshot(app);
     let _ = app.emit_to(RAIL, "state", &view);
+    push_meta(app);
     let title = if view.total_unread > 0 { format!("({}) Hovi Space", view.total_unread) } else { "Hovi Space".into() };
     if let Some(w) = main_window(app) {
         let _ = w.set_title(&title);
@@ -836,6 +839,47 @@ async fn set_labels(app: AppHandle, labels: Vec<Label>, chat_labels: BTreeMap<St
     publish(&app);
 }
 
+/// Gives each loaded account's page what changed for its menus (see page_meta).
+fn push_meta(app: &AppHandle) {
+    let Some(window) = main_window(app) else { return };
+    let st = app.state::<AppState>();
+    let store = st.store.lock().unwrap().clone();
+    for wv in window.webviews() {
+        let Some(id) = id_of(wv.label()).map(str::to_string) else { continue };
+        let json = crm::page_meta(&store.meta, &store.templates, &id).to_string();
+        let fresh = st.live.lock().unwrap().meta_sent.get(&id) != Some(&json);
+        if fresh {
+            let _ = wv.eval(format!("window.__hoviMeta && window.__hoviMeta({json});"));
+            st.live.lock().unwrap().meta_sent.insert(id, json);
+        }
+    }
+}
+
+/// A change made in Gem Space's own menus (shared/crm.js via inject.js), see crm::MetaEdit.
+#[tauri::command]
+async fn acc_meta(app: AppHandle, webview: Webview, edit: crm::MetaEdit) {
+    let Some(id) = id_of(webview.label()).map(str::to_string) else { return };
+    if edit.get {
+        app.state::<AppState>().live.lock().unwrap().meta_sent.remove(&id);
+        push_meta(&app);
+        return;
+    }
+    {
+        let st = app.state::<AppState>();
+        let mut store = st.store.lock().unwrap();
+        if !store.accounts.iter().any(|a| a.id == id) {
+            return;
+        }
+        store.meta = store.meta.clone().apply(&id, &edit);
+        if let Some(templates) = edit.templates {
+            store.templates = crm::clean_templates(templates);
+        }
+    }
+    save(&app);
+    publish(&app);
+    remind_due(&app);
+}
+
 /// Saves the notes, statuses and reminders of chats (the rail edits them, Rust keeps them tidy).
 #[tauri::command]
 async fn set_chat_meta(app: AppHandle, meta: ChatMeta) {
@@ -1273,6 +1317,7 @@ pub fn run() {
             broadcast_send,
             acc_sent,
             acc_log,
+            acc_meta,
             login_report,
             set_chat_meta,
             set_templates,

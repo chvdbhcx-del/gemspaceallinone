@@ -98,4 +98,8 @@
   window.__gemspaceSent = function (r) {
     try { if (window.GemspaceBridge) GemspaceBridge.postMessage(JSON.stringify({ t: 'sent', token: String(r.token || ''), ok: !!r.ok, error: String(r.error || '') })); } catch (e) {}
   };
+  // a status, reminder, note or template changed in Gem Space's own menus (shared/crm.js), or the page asks for them
+  window.__gemspaceMeta = function (e) {
+    try { if (window.GemspaceBridge) GemspaceBridge.postMessage(JSON.stringify({ t: 'meta', edit: e })); } catch (x) {}
+  };
 })();

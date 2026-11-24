@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-acc-meta"
+description = "Enables the acc_meta command without any pre-configured scope."
+commands.allow = ["acc_meta"]
+
+[[permission]]
+identifier = "deny-acc-meta"
+description = "Denies the acc_meta command without any pre-configured scope."
+commands.deny = ["acc_meta"]

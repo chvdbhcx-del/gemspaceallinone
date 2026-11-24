@@ -197,12 +197,96 @@ pub fn due(reminders: &BTreeMap<String, i64>, told: &BTreeMap<String, i64>, now:
     reminders.iter().filter(|(k, at)| **at <= now && told.get(*k) != Some(at)).map(|(k, _)| k.clone()).collect()
 }
 
+/// A change made in Gem Space's own menus (shared/crm.js): the status, reminder or note of one chat of the
+/// page's account, or the statuses or templates. `get` is a page that has just loaded and asks for them.
+#[derive(Deserialize, Default, Debug)]
+#[serde(default)]
+pub struct MetaEdit {
+    pub get: bool,
+    pub chat: Option<String>,
+    pub note: Option<String>,
+    pub status: Option<String>,
+    pub remind: Option<i64>,
+    pub statuses: Option<Vec<Label>>,
+    pub templates: Option<Vec<Template>>,
+}
+
+impl ChatMeta {
+    /// The page of `account` changed something (the templates are kept apart, see clean_templates).
+    pub fn apply(mut self, account: &str, e: &MetaEdit) -> ChatMeta {
+        if let Some(chat) = e.chat.as_deref().map(str::trim).filter(|c| !c.is_empty() && c.chars().count() <= 80) {
+            let key = format!("{account}|{chat}");
+            if let Some(note) = &e.note {
+                if note.trim().is_empty() {
+                    self.notes.remove(&key);
+                } else {
+                    self.notes.insert(key.clone(), note.clone());
+                }
+            }
+            if let Some(status) = &e.status {
+                if status.is_empty() {
+                    self.chat_status.remove(&key);
+                } else {
+                    self.chat_status.insert(key.clone(), status.clone());
+                }
+            }
+            if let Some(at) = e.remind {
+                if at <= 0 {
+                    self.reminders.remove(&key);
+                } else {
+                    self.reminders.insert(key, at);
+                }
+            }
+        }
+        if let Some(statuses) = &e.statuses {
+            self.statuses = statuses.clone();
+        }
+        self.clean()
+    }
+}
+
+/// What the page of `account` shows in Gem Space's own menus (shared/crm.js): the statuses and templates, and
+/// the notes, statuses and reminders of this account's chats, by chat name.
+pub fn page_meta(meta: &ChatMeta, templates: &[Template], account: &str) -> serde_json::Value {
+    fn mine<V: Clone + Into<serde_json::Value>>(m: &BTreeMap<String, V>, p: &str) -> serde_json::Map<String, serde_json::Value> {
+        m.iter().filter_map(|(k, v)| k.strip_prefix(p).map(|n| (n.to_string(), v.clone().into()))).collect()
+    }
+    let p = format!("{account}|");
+    serde_json::json!({
+        "statuses": meta.statuses,
+        "templates": templates,
+        "notes": mine(&meta.notes, &p),
+        "status": mine(&meta.chat_status, &p),
+        "reminders": mine(&meta.reminders, &p),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn l(id: &str, name: &str, color: &str) -> Label {
         Label { id: id.into(), name: name.into(), color: color.into() }
+    }
+
+    #[test]
+    fn page_edits_reach_only_their_account() {
+        let m = ChatMeta { statuses: default_statuses(), ..Default::default() };
+        let e = |s: &str| -> MetaEdit { serde_json::from_str(s).unwrap() };
+        let m = m.apply("a1", &e(r#"{"chat":"Ирина","note":"скидка","status":"s-open","remind":1900000000000}"#));
+        let m = m.apply("a1", &e(r#"{"chat":"Алексей","status":"no-such-status"}"#));
+        let m = m.apply("b2", &e(r#"{"chat":"Ирина","note":"другой аккаунт"}"#));
+        let v = page_meta(&m, &[], "a1");
+        assert_eq!(v["notes"]["Ирина"], "скидка");
+        assert_eq!(v["status"]["Ирина"], "s-open");
+        assert!(v["status"].get("Алексей").is_none());
+        assert_eq!(v["reminders"]["Ирина"], 1_900_000_000_000i64);
+        assert_eq!(v["statuses"].as_array().unwrap().len(), 3);
+        assert_eq!(page_meta(&m, &[], "b2")["notes"]["Ирина"], "другой аккаунт");
+        let m = m.apply("a1", &e(r#"{"chat":"Ирина","note":"  ","remind":0,"status":""}"#));
+        let v = page_meta(&m, &[], "a1");
+        assert!(v["notes"].get("Ирина").is_none() && v["reminders"].get("Ирина").is_none() && v["status"].get("Ирина").is_none());
+        assert!(e(r#"{"get":true}"#).get);
     }
 
     #[test]

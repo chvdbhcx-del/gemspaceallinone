@@ -2,6 +2,7 @@ package app.gemspace.allinone
 
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -53,6 +54,27 @@ class CrmTest {
         assertEquals("закупки", out.getJSONObject("notes").getString("fresh|Марк"))
         meta.forget("fresh")
         assertTrue(meta.notes.isEmpty() && meta.chatStatus.isEmpty() && meta.reminders.isEmpty())
+    }
+
+    @Test
+    fun pageEditsReachOnlyTheirAccount() {
+        val m = ChatMeta().apply { statuses += ChatMeta.defaultStatuses() }
+        m.apply("a1", JSONObject("""{"chat":"Ирина","note":"скидка","status":"s-open","remind":1900000000000}"""))
+        m.apply("a1", JSONObject("""{"chat":"Алексей","status":"no-such-status"}"""))
+        m.apply("b2", JSONObject("""{"chat":"Ирина","note":"другой аккаунт"}"""))
+        val p = m.page("a1")
+        assertEquals("скидка", p.getJSONObject("notes").getString("Ирина"))
+        assertEquals("s-open", p.getJSONObject("status").getString("Ирина"))
+        assertFalse(p.getJSONObject("status").has("Алексей"))
+        assertEquals(1900000000000L, p.getJSONObject("reminders").getLong("Ирина"))
+        assertEquals("#3aa0ff", p.getJSONArray("statuses").getJSONObject(0).getString("color"))
+        assertEquals("другой аккаунт", m.page("b2").getJSONObject("notes").getString("Ирина"))
+        m.apply("a1", JSONObject("""{"chat":"Ирина","note":"  ","remind":0,"status":""}"""))
+        val q = m.page("a1")
+        assertFalse(q.getJSONObject("notes").has("Ирина") || q.getJSONObject("reminders").has("Ирина") || q.getJSONObject("status").has("Ирина"))
+        m.apply("a1", JSONObject("""{"templates":[{"id":"t1","title":"","text":"Здравствуйте, {имя}!"}],"statuses":[{"id":"s-x","name":"Новый","color":"#112233"}]}"""))
+        assertEquals("Здравствуйте, {имя}!", m.templates.single().text)
+        assertEquals("Новый", m.statuses.single().name)
     }
 
     @Test

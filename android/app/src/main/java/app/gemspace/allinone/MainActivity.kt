@@ -109,8 +109,9 @@ class MainActivity : AppCompatActivity() {
 
     private val multiProfile by lazy { WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE) }
     private val injectJs by lazy {
-        // inject.js reroutes notifications; chats.js (shared with Windows) reads the chat list for "Все чаты"
-        listOf("inject.js", "chats.js").joinToString("\n") { f -> assets.open(f).bufferedReader().use { it.readText() } }
+        // inject.js reroutes notifications; chats.js (shared with Windows) reads the chat list for "Все чаты";
+        // crm.js puts statuses, reminders, notes and templates into Gem Space's own menus
+        listOf("inject.js", "chats.js", "crm.js").joinToString("\n") { f -> assets.open(f).bufferedReader().use { it.readText() } }
     }
 
     private val pickFiles = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
@@ -274,7 +275,6 @@ class MainActivity : AppCompatActivity() {
         feedSlot = FrameLayout(this)
         bar.addView(feedSlot, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         bar.addView(scroll, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        bar.addView(toolTile("⚡", "Шаблоны") { templatesButton() })
         bar.addView(toolTile("⚙", "Настройки") { openSettings() })
         root.addView(bar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
@@ -941,6 +941,20 @@ class MainActivity : AppCompatActivity() {
         store.save()
         refreshList()
         remindCheck()
+        pushMeta()
+    }
+
+    /** What each account's page was last given for Gem Space's own menus, to send only changes. */
+    private val metaSent = mutableMapOf<String, String>()
+
+    /** Gives each loaded account's page its statuses, reminders, notes and templates (shared/crm.js). */
+    private fun pushMeta() {
+        for ((id, wv) in views) {
+            val json = meta.page(id).toString()
+            if (metaSent[id] == json) continue
+            metaSent[id] = json
+            wv.evaluateJavascript("window.__hoviMeta && window.__hoviMeta($json)", null)
+        }
     }
 
     /** "сегодня в 18:00", "завтра в 9:00", "28 нояб. в 9:00" */
@@ -1120,11 +1134,6 @@ class MainActivity : AppCompatActivity() {
 
     // ---------- templates: put into the message field of a chat, the user sends it ----------
 
-    /** The "Шаблоны" tile on top: the open chat of the open account gets the template. */
-    private fun templatesButton() {
-        if (meta.templates.isEmpty() || store.active == null) templatesDialog() else pickTemplate(null, null)
-    }
-
     private fun pickTemplate(account: String?, name: String?) {
         if (meta.templates.isEmpty()) { templatesDialog(); return }
         AlertDialog.Builder(this).setTitle(if (name != null) "Ответить «$name»" else "Вставить в открытый чат")
@@ -1178,7 +1187,7 @@ class MainActivity : AppCompatActivity() {
         val list = meta.templates
         val b = AlertDialog.Builder(this).setTitle("Шаблоны")
         if (list.isEmpty()) {
-            b.setMessage("Готовые ответы для всех аккаунтов. Шаблон вставляется в поле сообщения открытого чата, а отправляете вы сами. {имя} заменится на имя из чата.\n\nВставить: кнопка «Шаблоны» сверху или долгое нажатие на чат в «Все чатах».")
+            b.setMessage("Готовые ответы для всех аккаунтов. Шаблон вставляется в поле сообщения открытого чата, а отправляете вы сами. {имя} заменится на имя из чата.\n\nВставить: кнопка ⚡ у поля сообщения в Gem Space или долгое нажатие на чат в «Все чатах».")
                 .setNeutralButton("Добавить примеры") { _, _ ->
                     addTemplateExamples()
                     templatesDialog()
@@ -2173,6 +2182,14 @@ class MainActivity : AppCompatActivity() {
             if (unreadChats() != before) renderFeedTile()
             return
         }
+        if (o.optString("t") == "meta") {
+            if (store.find(id) == null) return
+            val e = o.optJSONObject("edit") ?: return
+            if (e.optBoolean("get")) { metaSent.remove(id); pushMeta(); return }
+            meta.apply(id, e)
+            saveMeta()
+            return
+        }
         if (o.optString("t") == "sent") {
             if (tplResult(o.optString("token"), o.optBoolean("ok"), o.optString("error"))) return
             bcResult(id, o.optString("token"), o.optBoolean("ok"), o.optString("error"))
@@ -2204,6 +2221,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun sleep(id: String) {
         pageReady -= id
+        metaSent.remove(id)
         val wv = views.remove(id) ?: return
         pages.removeView(wv)
         wv.destroy()

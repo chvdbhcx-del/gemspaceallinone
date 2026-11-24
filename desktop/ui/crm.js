@@ -114,16 +114,6 @@ async function statusMenu(id) {
 }
 
 // ---------- templates ----------
-// "Шаблоны" in the rail: the open chat of the open account gets the template's text
-async function templatesButton() {
-  const list = state.templates || [];
-  if (!list.length || !state.active) { openOverlay('templates'); return; }
-  const items = list.slice(0, 30).map((t) => ({ id: 't-' + t.id, text: t.title, action: () => insertTemplate(t, null, null) }));
-  items.push({ item: 'Separator' }, { id: 't-edit', text: 'Изменить шаблоны…', action: () => openOverlay('templates') });
-  const menu = await Menu.new({ items });
-  await menu.popup();
-}
-
 async function insertTemplate(t, account, name) {
   try { await invoke('template_insert', { account, name, text: t.text }); }
   catch (e) { openOverlay('notice', { title: 'Шаблон не вставлен', text: (typeof e === 'string' ? e : (e && e.message) || String(e)) + '.' }); }
@@ -278,6 +268,5 @@ function crmOverlay(kind, body, a) {
   if (cancel) cancel.onclick = () => closeOverlay();
 }
 
-$('#tpl').onclick = () => templatesButton();
 // a reminder comes due while the list is open: its bell turns red without waiting for the next state push
 setInterval(() => { if (Object.keys(state.reminders || {}).length) { renderFeedButton(); if (panelOpen) renderFeed(); } }, 20000);
