@@ -65,6 +65,8 @@ class MainActivity : AppCompatActivity() {
 
     /** loaded (awake) accounts; access order = least recently used first */
     private val views = LinkedHashMap<String, WebView>(16, 0.75f, true)
+    /** accounts whose Gem Space page has finished loading (a broadcast waits for it after waking one) */
+    private val pageReady = HashSet<String>()
     private val unread = HashMap<String, Int>()
     private val attention = HashSet<String>()
     /** new messages of all accounts, from their notifications (Feed.kt) */
@@ -157,7 +159,12 @@ class MainActivity : AppCompatActivity() {
             enforceSleep(); updateKeepAlive(); render(); refreshList()
             AlertDialog.Builder(this)
                 .setTitle("Восстановлено")
-                .setMessage("Добавлено аккаунтов: $added, обновлено: $updated. В новые аккаунты нужно войти заново, по номеру телефона.")
+                .setMessage(when {
+                    added == 0 && updated == 0 -> "В файле нет аккаунтов, восстановлены настройки и метки."
+                    added == 0 -> "Обновлено аккаунтов: $updated."
+                    updated == 0 -> "Добавлено аккаунтов: $added. В них нужно войти заново."
+                    else -> "Добавлено аккаунтов: $added, обновлено: $updated. В новые нужно войти заново."
+                })
                 .setPositiveButton("Понятно", null)
                 .show()
         } catch (e: Exception) {
@@ -306,7 +313,7 @@ class MainActivity : AppCompatActivity() {
                 setOnClickListener { editAccount(null) }
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(14) })
             addView(TextView(context).apply {
-                text = "Откроется обычная веб-версия Gem Space, вход по номеру телефона, как всегда."
+                text = "Откроется обычная веб-версия Gem Space, вход такой же, как в браузере."
                 textSize = 12f; gravity = Gravity.CENTER; setTextColor(muted); setPadding(dp(8), dp(12), dp(8), 0)
             })
             addView(TextView(context).apply {
@@ -610,10 +617,10 @@ class MainActivity : AppCompatActivity() {
             listRows.addView(TextView(this).apply {
                 text = when {
                     all.isEmpty() -> "Список чатов ещё не загрузился. Он появится, когда откроются страницы аккаунтов."
-                    q.isNotEmpty() -> "Ничего не нашлось."
-                    chatFilter == UNREAD -> "Всё прочитано."
+                    q.isNotEmpty() -> "Ничего не найдено"
+                    chatFilter == UNREAD -> "Непрочитанных нет"
                     chatFilter?.startsWith(LABEL) == true -> "С этой меткой чатов нет. Метка ставится долгим нажатием на чат."
-                    else -> "У этого аккаунта пока нет чатов в списке."
+                    else -> "У этого аккаунта пока нет чатов в списке"
                 }
                 setTextColor(muted); setPadding(dp(16), dp(20), dp(16), dp(12)); gravity = Gravity.CENTER
             })
@@ -621,8 +628,8 @@ class MainActivity : AppCompatActivity() {
         for ((a, c, _) in rows) listRows.addView(chatRow(a, c), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         val missing = store.accounts.filter { chats[it.id].isNullOrEmpty() }
         listRows.addView(TextView(this).apply {
-            text = (if (missing.isNotEmpty() && all.isNotEmpty()) "Пока без списка: ${missing.joinToString(", ") { it.name }}. " else "") +
-                "Долгое нажатие на чат ставит метки. Hovi Space читает список, который показывает страница Gem Space, и никуда его не отправляет. Пишет в чаты он только в рассылке, которую запустили вы."
+            text = (if (missing.isNotEmpty() && all.isNotEmpty()) missing.joinToString(", ") { it.name }.let { "Пока без списка: $it${if (it.endsWith(".")) "" else "."} Их чаты появятся, когда аккаунт загрузится. " } else "") +
+                "Долгое нажатие на чат ставит метки. Список берётся со страниц Gem Space и никуда не отправляется."
             textSize = 12f; setTextColor(muted); setPadding(dp(12), dp(12), dp(12), 0)
         })
     }
@@ -745,7 +752,7 @@ class MainActivity : AppCompatActivity() {
         }
         if (items.isEmpty()) {
             listRows.addView(TextView(this).apply {
-                text = "Новых сообщений нет. Здесь появятся сообщения всех аккаунтов, как только придут."
+                text = "Новых сообщений нет. Здесь появятся сообщения всех аккаунтов, как только придут"
                 setTextColor(muted); setPadding(dp(16), dp(20), dp(16), dp(12)); gravity = Gravity.CENTER
             })
         }
@@ -786,7 +793,7 @@ class MainActivity : AppCompatActivity() {
             listRows.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
         listRows.addView(TextView(this).apply {
-            text = "Лента собирается из уведомлений аккаунтов, пока Hovi Space работает. Спящие аккаунты сюда не пишут. Сообщения аккаунта уходят из ленты, когда в нём всё прочитано."
+            text = "Лента собирается из уведомлений, пока Hovi Space работает. Спящие аккаунты сюда не пишут, важные отметьте «Не усыплять». Когда в аккаунте всё прочитано, его сообщения уходят из ленты."
             textSize = 12f; setTextColor(muted); setPadding(dp(12), dp(12), dp(12), 0)
         })
     }
@@ -878,7 +885,7 @@ class MainActivity : AppCompatActivity() {
     // types and sends each message (shared/chats.js, __gemspaceSend) and answers through the bridge ("sent").
     private class BcItem(val account: String, val name: String) { var status = "wait"; var error = "" }
     private class Bc(val items: List<BcItem>, val text: String) {
-        var i = 0; var stop = false; var done = false; var nextAt = 0L; var reason = ""; var fails = 0; var token = ""
+        var i = 0; var stop = false; var done = false; var nextAt = 0L; var reason = ""; var fails = 0; var token = ""; var waitedMs = 0
     }
     private var bc: Bc? = null
     private val bcHandler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -1026,6 +1033,18 @@ class MainActivity : AppCompatActivity() {
         it.status = "sending"
         renderBc()
         switchTo(it.account)
+        if (it.account !in pageReady && views.containsKey(it.account)) {
+            if (run.waitedMs < 30_000) {
+                run.waitedMs += 500
+                bcHandler.postDelayed({ if (bc === run && !run.stop) bcStep() else if (bc === run) bcFinish(run) }, 500)
+                return
+            }
+            run.waitedMs = 0
+            run.token = store.newId()
+            bcResult(it.account, run.token, false, "Страница аккаунта не загрузилась")
+            return
+        }
+        run.waitedMs = 0
         val token = store.newId()
         run.token = token
         val wv = views[it.account]
@@ -1034,7 +1053,8 @@ class MainActivity : AppCompatActivity() {
         wv.evaluateJavascript(
             "if (window.__gemspaceSend) window.__gemspaceSend(${q(it.name)}, ${q(bcPersonal(run.text, it.name))}, ${q(token)}); " +
                 "else if (window.__gemspaceSent) window.__gemspaceSent({ token: ${q(token)}, ok: false, error: 'Страница ещё не загрузилась' });", null)
-        bcHandler.postDelayed({ if (bc === run && run.token == token) bcResult(it.account, token, false, "Страница не ответила") }, 45_000)
+        // the page waits up to 20 s for its chat list, then opens the chat, types and sends
+        bcHandler.postDelayed({ if (bc === run && run.token == token) bcResult(it.account, token, false, "Страница не ответила") }, 60_000)
     }
 
     /** The page's answer for the message in flight (bridge "sent"). */
@@ -1305,7 +1325,7 @@ class MainActivity : AppCompatActivity() {
                 1 -> editAccount(a)
                 2 -> views[a.id]?.reload() ?: switchTo(a.id)
                 3 -> { sleep(a.id); render() }
-                4 -> { a.pinned = !a.pinned; store.save() }
+                4 -> { a.pinned = !a.pinned; store.save(); enforceSleep(); render() }
                 5, 6 -> {
                     store.accounts.removeAt(i)
                     store.accounts.add((if (it.itemId == 5) i - 1 else i + 1).coerceIn(0, store.accounts.size), a)
@@ -1330,13 +1350,14 @@ class MainActivity : AppCompatActivity() {
         var color = a?.color ?: Store.COLORS[store.accounts.size % Store.COLORS.size]
         val ava = sheet.avatar(color, a?.let { Store.initials(it.name) } ?: "+")
         sheet.hero(ava, if (a == null) "Новый аккаунт" else "Аккаунт",
-            if (a == null) "Откроется веб-версия Gem Space, войдите по номеру телефона, как обычно" else "Название и цвет этого аккаунта")
+            if (a == null) "Откроется веб-версия Gem Space, войдите так же, как в браузере" else "Название и цвет этого аккаунта")
         val card = sheet.card()
         card.setPadding(dp(16), dp(16), dp(16), dp(16))
         card.addView(sheet.label("Название"))
         val name = EditText(this).apply {
             hint = "Например, Продажи"; setText(a?.name ?: ""); textSize = 16f
-            inputType = InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            filters = arrayOf(android.text.InputFilter.LengthFilter(40))
             setTextColor(ContextCompat.getColor(context, R.color.fg))
             setHintTextColor(ContextCompat.getColor(context, R.color.muted))
             setPadding(dp(14), dp(12), dp(14), dp(12))
@@ -1703,7 +1724,13 @@ class MainActivity : AppCompatActivity() {
                 return true
             }
 
+            override fun onPageFinished(view: WebView, url: String?) {
+                val host = url?.let { Uri.parse(it).host }.orEmpty()
+                if (host == "gemspace.com" || host.endsWith(".gemspace.com")) pageReady += id
+            }
+
             override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
+                pageReady -= id
                 if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) view.evaluateJavascript(injectJs, null)
             }
         }
@@ -1802,6 +1829,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun sleep(id: String) {
+        pageReady -= id
         val wv = views.remove(id) ?: return
         pages.removeView(wv)
         wv.destroy()

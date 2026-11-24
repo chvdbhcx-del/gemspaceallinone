@@ -7,6 +7,7 @@
 
 const MEGA_PATH = 'M3 10v4a1 1 0 0 0 1 1h2l4 5h2V4h-2L6 9H4a1 1 0 0 0-1 1zm13.5 2A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z';
 const WARN_PATH = 'M1 21h22L12 2zm12-3h-2v-2h2zm0-4h-2v-4h2z';
+const CLOCK_PATH = 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16zm.5-13H11v6l5.2 3.2.8-1.3-4.5-2.7z';
 
 let bcDraft = { text: '', picked: new Set(), q: '' }; // what the form shows, kept while the rail lives
 let bc = null; // the running or finished broadcast: { items, i, stop, done, nextAt, reason, open }
@@ -52,15 +53,15 @@ function bcForm(body) {
           <button type="button" class="chip" data-k="all">Все чаты</button>
           <button type="button" class="chip" data-k="none">Снять все</button>
         </div>
-        <input type="text" id="bc-q" placeholder="Найти чат" value="${esc(bcDraft.q)}" autocomplete="off">
+        <input type="text" id="bc-q" placeholder="Найти чат" aria-label="Найти чат" value="${esc(bcDraft.q)}" autocomplete="off" spellcheck="false">
         <div class="bc-list" id="bc-list"></div>
       </div>
     </div>
     <div class="af-card set-card">
-      <div class="set-row"><span class="af-ic">${icon(MOON_PATH)}</span><span class="af-txt"><b>Пауза между сообщениями</b><small>Случайная, в секундах. Не меньше 10</small></span>
-        <span class="bc-range"><input type="number" id="bc-min" min="10" max="600" value="${s.bc_pause_min}"><i>–</i><input type="number" id="bc-max" min="10" max="900" value="${s.bc_pause_max}"></span></div>
+      <div class="set-row"><span class="af-ic">${icon(CLOCK_PATH)}</span><span class="af-txt"><b>Пауза между сообщениями</b><small>Случайная, в секундах. Не меньше 10</small></span>
+        <span class="bc-range"><input type="number" id="bc-min" min="10" max="600" value="${s.bc_pause_min}" aria-label="Пауза от, секунд"><i>–</i><input type="number" id="bc-max" min="10" max="900" value="${s.bc_pause_max}" aria-label="Пауза до, секунд"></span></div>
       <div class="set-row"><span class="af-ic">${icon(LAYERS_PATH)}</span><span class="af-txt"><b>Не больше в день</b><small>С одного аккаунта${used ? `. Сегодня: ${used}` : ''}</small></span>
-        <span class="bc-range"><input type="number" id="bc-limit" min="1" max="300" value="${s.bc_limit}"></span></div>
+        <span class="bc-range"><input type="number" id="bc-limit" min="1" max="300" value="${s.bc_limit}" aria-label="Сообщений в день с одного аккаунта"></span></div>
     </div>
     <div class="err"></div>
     <button class="btn primary big wide" id="f-ok">Начать рассылку</button>
@@ -148,9 +149,9 @@ function bcWarn(body, start) {
   $('#f-cancel').onclick = () => closeOverlay();
 }
 
-const bcSleep = (ms) => new Promise((resolve) => {
+const bcSleep = (run, ms) => new Promise((resolve) => {
   const end = Date.now() + ms;
-  (function tick() { if (bc.stop || Date.now() >= end) return resolve(); setTimeout(tick, 250); })();
+  (function tick() { if (run.stop || Date.now() >= end) return resolve(); setTimeout(tick, 250); })();
 });
 
 async function runBroadcast() {
@@ -159,7 +160,7 @@ async function runBroadcast() {
   for (; run.i < run.items.length && !run.stop; run.i++) {
     const it = run.items[run.i];
     // the rail's own windows (settings, account editor) cover the pages: wait until they are closed
-    while (overlayKind && !run.stop) await bcSleep(500);
+    while (overlayKind && !run.stop) await bcSleep(run, 500);
     if (run.stop) break;
     if (((state.sent_today || {})[it.account] || 0) >= state.settings.bc_limit) { it.status = 'skip'; it.error = 'Дневной лимит аккаунта'; renderBc(); continue; }
     it.status = 'sending'; renderBc();
@@ -175,7 +176,7 @@ async function runBroadcast() {
     const min = state.settings.bc_pause_min, max = state.settings.bc_pause_max;
     const ms = it.status === 'ok' ? (min + Math.random() * (max - min)) * 1000 : 3000;
     run.nextAt = Date.now() + ms;
-    await bcSleep(ms);
+    await bcSleep(run, ms);
     run.nextAt = 0;
   }
   run.items.forEach((x) => { if (x.status === 'wait' || x.status === 'sending') { x.status = 'skip'; x.error = x.error || 'Остановлено'; } });
@@ -186,8 +187,9 @@ async function runBroadcast() {
 let bcTimer = null;
 function renderBc() {
   const box = $('#bc-bar');
-  if (!bc) { box.hidden = true; return; }
+  if (!bc) { box.hidden = true; box.innerHTML = ''; return; }
   box.hidden = false;
+  const scrolled = box.querySelector('.bc-items')?.scrollTop || 0;
   const ok = bc.items.filter((x) => x.status === 'ok').length;
   const bad = bc.items.filter((x) => x.status === 'err').length;
   const skip = bc.items.filter((x) => x.status === 'skip').length;
@@ -202,11 +204,13 @@ function renderBc() {
       ${bc.done ? '<button class="btn small" id="bc-close">Закрыть</button>' : '<button class="btn small danger" id="bc-stop">Стоп</button>'}</div>
     <div class="bc-prog"><span style="width:${Math.round(((ok + bad + skip) / total) * 100)}%"></span></div>
     ${bc.reason ? `<div class="bc-reason">${esc(bc.reason)}</div>` : ''}
-    <button class="bc-more${bc.open ? ' open' : ''}" id="bc-more">${bc.open ? 'Скрыть список' : 'Показать список'}</button>
+    <button class="bc-more${bc.open ? ' open' : ''}" id="bc-more" aria-expanded="${bc.open}">${bc.open ? 'Скрыть список' : 'Показать список'}</button>
     ${bc.open ? `<div class="bc-items">${bc.items.map((x) => {
       const a = accounts.get(x.account);
       return `<div class="bc-item ${x.status}" title="${esc(x.error)}"><i class="bc-st">${icon_[x.status]}</i><span class="bc-dot" style="background:${esc(a ? a.color : '#888')}"></span><span class="bc-name">${esc(x.name)}</span>${x.error ? `<small>${esc(x.error)}</small>` : ''}</div>`;
     }).join('')}</div>` : ''}`;
+  const items = box.querySelector('.bc-items');
+  if (items) items.scrollTop = scrolled;
   const stop = $('#bc-stop');
   if (stop) stop.onclick = () => { bc.stop = true; bc.reason = 'Остановлено вами'; renderBc(); };
   const close = $('#bc-close');
