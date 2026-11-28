@@ -755,7 +755,8 @@ fn patrol(app: &AppHandle) {
             diag(app, &id, &format!("patrol: could not wake ({e})"));
             let mut live = st.live.lock().unwrap();
             live.patrol.remove(&id);
-            live.patrol_seen.insert(id.clone(), (now, live.unread.get(&id).copied().unwrap_or(0)));
+            let n = live.unread.get(&id).copied().unwrap_or(0);
+            live.patrol_seen.insert(id.clone(), (now, n));
         }
     }
     layout(app);
