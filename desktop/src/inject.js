@@ -268,6 +268,15 @@
   if (signedIn) window.__gemspaceInstall();
   else startDiag();
 
+  // An account just moved to Hovi Space's shared browser carries a copy of its sign-in; if the page asks to
+  // sign in anyway, Hovi Space puts the account back into its own browser, where the sign-in still is. Only
+  // the address's path is told, and only while it is Gem Space's sign-in page.
+  [8000, 20000, 40000].forEach(function (ms) {
+    setTimeout(function () {
+      if (/^\/login/.test(location.pathname)) invoke('acc_page', { path: location.pathname });
+    }, ms);
+  });
+
   // the chat list read by shared/chats.js goes to the rail's "Все чаты"
   window.__gemspaceSendChats = function (chats) { invoke('acc_chats', { chats: chats }); };
   // the result of one message of a broadcast the user started (shared/chats.js, __gemspaceSend)
