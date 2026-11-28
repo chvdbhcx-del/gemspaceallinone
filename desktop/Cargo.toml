@@ -29,6 +29,8 @@ url = "2"
 # account pages without Edge's tracking prevention (lib.rs, no_tracking_prevention); same versions as wry uses
 webview2-com = "0.39"
 windows-core = "0.62"
+# memory in use (lib.rs, memory_guard)
+windows-sys = { version = "0.61", features = ["Win32_System_SystemInformation"] }
 
 [profile.release]
 # thin LTO with the default codegen units: the release build takes well under a minute in CI instead of

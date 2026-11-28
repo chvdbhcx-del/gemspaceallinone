@@ -4,6 +4,7 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.app.DownloadManager
 import android.content.ActivityNotFoundException
+import android.content.ComponentCallbacks2
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -22,6 +23,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.PermissionRequest
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.URLUtil
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -2111,6 +2113,14 @@ class MainActivity : AppCompatActivity() {
                 if (host == "gemspace.com" || host.endsWith(".gemspace.com")) pageReady += id
             }
 
+            // All WebViews of the app share one page process. When Android kills it for memory (many awake
+            // accounts) or it crashes, a WebView without this handler takes the whole app down with it. Here only
+            // the WebViews are lost: each one is closed, and the open account loads again.
+            override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail?): Boolean {
+                pages.post { recoverPage(id, view) }
+                return true
+            }
+
             override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
                 pageReady -= id
                 if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) view.evaluateJavascript(injectJs, null)
@@ -2217,6 +2227,41 @@ class MainActivity : AppCompatActivity() {
         val fixed = views.size - sleepable.size
         val extra = sleepable.size - (limit - fixed).coerceAtLeast(0)
         sleepable.take(extra.coerceAtLeast(0)).forEach { sleep(it) }
+    }
+
+    /** The page process of [view] is gone (see onRenderProcessGone): the account sleeps, the open one loads again. */
+    private fun recoverPage(id: String, view: WebView) {
+        if (views.entries.none { it.key == id && it.value === view }) {
+            // an account already closed: only let go of the dead WebView
+            pages.removeView(view)
+            try { view.destroy() } catch (e: Exception) { }
+            return
+        }
+        sleep(id)
+        if (store.active == id && store.find(id) != null) createWebView(id)
+        render()
+    }
+
+    /** Android is short of memory: the accounts not opened for longest go to sleep first, so the app is not killed. */
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        @Suppress("DEPRECATION")
+        val all = level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL || level >= ComponentCallbacks2.TRIM_MEMORY_COMPLETE
+        @Suppress("DEPRECATION")
+        val some = level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW || level == ComponentCallbacks2.TRIM_MEMORY_MODERATE
+        if (!all && !some) return
+        val sleepable = views.keys.filter { it != store.active && store.find(it)?.pinned != true }
+        val n = if (all) sleepable.size else (sleepable.size + 1) / 2
+        if (n == 0) return
+        sleepable.take(n).forEach { sleep(it) }
+        render()
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onLowMemory() {
+        @Suppress("DEPRECATION")
+        super.onLowMemory()
+        onTrimMemory(ComponentCallbacks2.TRIM_MEMORY_COMPLETE)
     }
 
     private fun sleep(id: String) {
