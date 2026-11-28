@@ -93,6 +93,17 @@ pub(crate) struct Live {
     diag: std::collections::VecDeque<String>,
     /// what each account's page was last given for Gem Space's own menus (shared/crm.js), to send only changes
     meta_sent: HashMap<String, String>,
+    /// hidden accounts asked to keep their memory low (WebView2 memory usage target), see layout()
+    low_mem: HashSet<String>,
+    /// when each account's page process last failed, to stop reloading a page that keeps failing
+    failures: HashMap<String, Vec<std::time::Instant>>,
+    /// accounts just moved into the shared browser with a copy of their sign-in, until their page shows
+    /// whether it is still signed in (acc_chats: yes, acc_page on the sign-in page: no)
+    migrating: HashSet<String>,
+    /// sleeping accounts woken for a short visit by the patrol: account -> when, and whether its chat list came
+    patrol: HashMap<String, (std::time::Instant, bool)>,
+    /// when the patrol last visited each account, and the unread count it found then
+    patrol_seen: HashMap<String, (std::time::Instant, u32)>,
 }
 
 /// Adds a line to the sign-in report (Settings, "Отчёт о входе"). Addresses only, never message text.
@@ -222,8 +233,26 @@ fn snapshot(app: &AppHandle) -> StateView {
     }
 }
 
-/// Pushes the state to the rail and refreshes the window title and the tray tooltip.
+/// A state push is on its way (see publish).
+static PUBLISH_PENDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Pushes the state to the rail soon. Many changes in a row (titles, chat lists and notifications of dozens
+/// of awake accounts) go out as one push, at most about ten times a second, instead of one each.
 pub(crate) fn publish(app: &AppHandle) {
+    use std::sync::atomic::Ordering;
+    if PUBLISH_PENDING.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        PUBLISH_PENDING.store(false, Ordering::Release);
+        publish_now(&app);
+    });
+}
+
+/// Pushes the state to the rail and refreshes the window title and the tray tooltip.
+fn publish_now(app: &AppHandle) {
     let view = snapshot(app);
     let _ = app.emit_to(RAIL, "state", &view);
     push_meta(app);
@@ -268,13 +297,43 @@ fn layout(app: &AppHandle) {
         } else if let Some(id) = id_of(&label) {
             let _ = wv.set_position(LogicalPosition::new(rail_w, 0.0));
             let _ = wv.set_size(LogicalSize::new(content_w, size.height));
-            if !overlay && active.as_deref() == Some(id) {
+            let visible = !overlay && active.as_deref() == Some(id);
+            if visible {
                 let _ = wv.show();
             } else {
                 let _ = wv.hide();
             }
+            // a hidden account keeps running (messages, notifications) but gives back what memory it can
+            let changed = {
+                let mut live = st.live.lock().unwrap();
+                if visible { live.low_mem.remove(id) } else { live.low_mem.insert(id.to_string()) }
+            };
+            if changed {
+                #[cfg(windows)]
+                memory_target(&wv, !visible);
+            }
         }
     }
+}
+
+/// WebView2's memory usage target: low for a hidden account, so its page process trims its caches and
+/// working set; normal again when it is shown.
+#[cfg(windows)]
+fn memory_target(wv: &Webview, low: bool) {
+    let _ = wv.with_webview(move |pw| {
+        use webview2_com::Microsoft::Web::WebView2::Win32::{
+            ICoreWebView2_19, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
+        };
+        use windows_core::Interface;
+        let level = if low { COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW } else { COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL };
+        unsafe {
+            if let Ok(core) = pw.controller().CoreWebView2() {
+                if let Ok(core) = core.cast::<ICoreWebView2_19>() {
+                    let _ = core.SetMemoryUsageTargetLevel(level);
+                }
+            }
+        }
+    });
 }
 
 /// Number of unread chats from the page title: "(3) Gem Space", "3 · Gem Space" or "3 Gem Space".
@@ -299,7 +358,14 @@ fn open_external(app: &AppHandle, url: &str) {
 /// Creates the webview of an account (wakes it up). Must not run on the main thread: add_child waits for it.
 fn create_account_webview(app: &AppHandle, account: &Account) -> tauri::Result<Webview> {
     let window = main_window(app).ok_or(tauri::Error::WindowNotFound)?;
-    let dir = store::account_dir(app, &account.id)?;
+    // accounts without a proxy share one browser (one browser, GPU and network process for all of them,
+    // each account its own profile, so its own cookies and storage); an account with a proxy has its own,
+    // since the proxy is set for a whole browser
+    if account.shared && !account.wants_shared() {
+        return Err(tauri::Error::Io(std::io::Error::other("Перезапустите Hovi Space, чтобы аккаунт открылся со своим прокси")));
+    }
+    let dir = if account.shared { store::shared_dir(app)? } else { store::account_dir(app, &account.id)? };
+    tauri_runtime_wry::set_webview_profile(&label_of(&account.id), account.shared.then(|| store::profile_name(&account.id)).as_deref());
     let app_title = app.clone();
     let app_window = app.clone();
     let app_load = app.clone();
@@ -369,7 +435,7 @@ fn create_account_webview(app: &AppHandle, account: &Account) -> tauri::Result<W
                 _ => PermissionResponse::Default,
             }
         });
-    let proxy = account.proxy.as_deref().map(str::trim).filter(|p| !p.is_empty()).and_then(|p| match store::parse_proxy(p) {
+    let proxy = account.proxy.as_deref().map(str::trim).filter(|p| !p.is_empty() && !account.shared).and_then(|p| match store::parse_proxy(p) {
         Ok(url) => Some(url),
         Err(e) => {
             eprintln!("gemspace: bad proxy for {}: {e}", account.id);
@@ -385,7 +451,11 @@ fn create_account_webview(app: &AppHandle, account: &Account) -> tauri::Result<W
         builder = builder.user_agent(&format!(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36"
         ));
-        let mut args = String::from("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,UserAgentClientHint");
+        // the HTTP cache of each account at most 64 MB: with dozens of accounts the default (a share of the
+        // free disk each) fills gigabytes
+        let mut args = String::from(
+            "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,UserAgentClientHint --disk-cache-size=67108864",
+        );
         if let Some(url) = &proxy {
             args.push_str(&format!(" --proxy-server={}://{}:{}", url.scheme(), url.host_str().unwrap_or_default(), url.port().unwrap_or_default()));
         }
@@ -407,6 +477,13 @@ fn create_account_webview(app: &AppHandle, account: &Account) -> tauri::Result<W
     let _ = wv.hide();
     #[cfg(windows)]
     no_tracking_prevention(app, &wv, &account.id);
+    #[cfg(windows)]
+    watch_process_failures(app, &wv, &account.id);
+    #[cfg(windows)]
+    if account.shared {
+        log_profile(app, &wv, &account.id);
+    }
+    app.state::<AppState>().live.lock().unwrap().low_mem.remove(&account.id);
     let z = ui_scale(app);
     if (z - 1.0).abs() > f64::EPSILON {
         let _ = wv.set_zoom(z);
@@ -439,6 +516,252 @@ fn no_tracking_prevention(app: &AppHandle, wv: &Webview, id: &str) {
     });
 }
 
+/// Which profile folder WebView2 gave an account of the shared browser, for the sign-in report: a moved sign-in
+/// is found only if it is the one prepare_profiles copied it to.
+#[cfg(windows)]
+fn log_profile(app: &AppHandle, wv: &Webview, id: &str) {
+    let (app, id) = (app.clone(), id.to_string());
+    let expected = store::profile_dir(&app, &id).map(|p| p.display().to_string()).unwrap_or_default();
+    let _ = wv.with_webview(move |pw| {
+        use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_13;
+        use windows_core::{Interface, PWSTR};
+        let path = unsafe {
+            (|| -> windows_core::Result<String> {
+                let profile = pw.controller().CoreWebView2()?.cast::<ICoreWebView2_13>()?.Profile()?;
+                let mut p = PWSTR::null();
+                profile.ProfilePath(&mut p)?;
+                Ok(webview2_com::take_pwstr(p))
+            })()
+        };
+        match path {
+            Ok(p) if p.eq_ignore_ascii_case(&expected) => diag(&app, &id, "shared browser profile: ok"),
+            Ok(p) => diag(&app, &id, &format!("shared browser profile in an unexpected folder: {p}")),
+            Err(e) => diag(&app, &id, &format!("shared browser profile: unknown ({e})")),
+        }
+    });
+}
+
+/// What to do when a page process of an account fails (WebView2 ProcessFailed).
+#[derive(Debug, PartialEq)]
+enum Recovery {
+    /// the page process crashed, was killed (out of memory) or hangs: load the page again
+    Reload,
+    /// the account's browser process is gone: close the account (and open it again if it is the open one)
+    Restart,
+    /// failed again and again within a few minutes: the account sleeps until it is opened
+    Sleep,
+    /// GPU, utility and other helper processes: WebView2 starts them again by itself
+    Nothing,
+}
+
+/// Failures within this time count together; more than MAX_FAILURES of them put the account to sleep.
+const FAILURE_WINDOW: std::time::Duration = std::time::Duration::from_secs(180);
+const MAX_FAILURES: usize = 3;
+
+fn recovery_for(kind: i32, recent_failures: usize) -> Recovery {
+    // COREWEBVIEW2_PROCESS_FAILED_KIND: 0 browser exited, 1 render exited, 2 render unresponsive,
+    // 3 frame render exited, 4 utility, 5 sandbox helper, 6 gpu, 7 ppapi plugin, 8 ppapi broker, 9 unknown
+    let base = match kind {
+        0 => Recovery::Restart,
+        1 | 2 => Recovery::Reload,
+        _ => return Recovery::Nothing,
+    };
+    if recent_failures > MAX_FAILURES { Recovery::Sleep } else { base }
+}
+
+/// Without this a crashed or hung account page stays white or frozen until the user restarts Hovi Space;
+/// under memory pressure with many accounts Windows kills such page processes.
+#[cfg(windows)]
+fn watch_process_failures(app: &AppHandle, wv: &Webview, id: &str) {
+    let app = app.clone();
+    let id = id.to_string();
+    let _ = wv.with_webview(move |pw| {
+        use webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_PROCESS_FAILED_KIND;
+        use webview2_com::ProcessFailedEventHandler;
+        let Ok(core) = (unsafe { pw.controller().CoreWebView2() }) else { return };
+        let handler = ProcessFailedEventHandler::create(Box::new(move |sender, args| {
+            let Some(args) = args else { return Ok(()) };
+            let mut kind = COREWEBVIEW2_PROCESS_FAILED_KIND::default();
+            unsafe { args.ProcessFailedKind(&mut kind)? };
+            let recent = {
+                let st = app.state::<AppState>();
+                let mut live = st.live.lock().unwrap();
+                let list = live.failures.entry(id.clone()).or_default();
+                let now = std::time::Instant::now();
+                list.retain(|t| now.duration_since(*t) < FAILURE_WINDOW);
+                if matches!(kind.0, 0..=2) {
+                    list.push(now);
+                }
+                list.len()
+            };
+            let what = recovery_for(kind.0, recent);
+            diag(&app, &id, &format!("page process failed (kind {}): {what:?}", kind.0));
+            match what {
+                Recovery::Nothing => {}
+                Recovery::Reload => {
+                    if let Some(core) = sender {
+                        unsafe {
+                            let _ = core.Reload();
+                        }
+                    }
+                }
+                Recovery::Restart | Recovery::Sleep => {
+                    // a webview is closed and created off the main thread (this handler runs on it)
+                    let (app, id) = (app.clone(), id.clone());
+                    std::thread::spawn(move || {
+                        sleep(&app, &id);
+                        let active = app.state::<AppState>().store.lock().unwrap().active.clone();
+                        if what == Recovery::Restart && active.as_deref() == Some(id.as_str()) {
+                            let _ = switch_to(&app, &id);
+                        } else {
+                            publish(&app);
+                        }
+                    });
+                }
+            }
+            Ok(())
+        }));
+        let mut token = 0i64;
+        unsafe {
+            let _ = core.add_ProcessFailed(&handler, &mut token);
+        }
+    });
+}
+
+/// Share of the computer's memory in use, in percent (Windows), or None where it is not known.
+fn memory_load() -> Option<u32> {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+        let mut m: MEMORYSTATUSEX = unsafe { std::mem::zeroed() };
+        m.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
+        if unsafe { GlobalMemoryStatusEx(&mut m) } != 0 {
+            return Some(m.dwMemoryLoad);
+        }
+    }
+    None
+}
+
+/// Memory in use from which the accounts not opened for longest go to sleep, one every check.
+const MEMORY_HIGH: u32 = 88;
+
+/// Guards the computer against running out of memory with many awake accounts (even with the sleep mode
+/// off): while memory use is high, the least recently opened account that is neither open nor pinned
+/// sleeps. A sleeping account loads again when it is opened.
+fn memory_guard(app: &AppHandle) {
+    let Some(load) = memory_load() else { return };
+    if load < MEMORY_HIGH {
+        return;
+    }
+    let st = app.state::<AppState>();
+    let (active, pinned): (Option<String>, HashSet<String>) = {
+        let store = st.store.lock().unwrap();
+        (store.active.clone(), store.accounts.iter().filter(|a| a.pinned).map(|a| a.id.clone()).collect())
+    };
+    let victim = {
+        let live = st.live.lock().unwrap();
+        live.lru.iter().find(|id| Some(id.as_str()) != active.as_deref() && !pinned.contains(*id) && !live.waiters.values().any(|(a, _)| a == *id)).cloned()
+    };
+    if let Some(id) = victim {
+        diag(app, &id, &format!("memory {load}% in use: account put to sleep"));
+        sleep(app, &id);
+        publish(app);
+    }
+}
+
+/// How many sleeping accounts the patrol visits at the same time, and how long a visit lasts at most and
+/// at least once the page shows its chat list.
+const PATROL_SLOTS: usize = 4;
+const PATROL_MAX: std::time::Duration = std::time::Duration::from_secs(40);
+const PATROL_MIN: std::time::Duration = std::time::Duration::from_secs(12);
+/// The patrol starts no visit while this much of the computer's memory is in use.
+const PATROL_MEMORY: u32 = 80;
+
+/// The patrol (обход спящих): sleeping accounts are woken in turns, a few at a time, for up to 40 seconds,
+/// so their unread counters stay current and new messages are announced even though they sleep. A visited
+/// account stays hidden and asleep for the user (moon on its tile); opening it makes it a normal awake one.
+/// 60 sleeping accounts take about 10 minutes for a round.
+fn patrol(app: &AppHandle) {
+    let st = app.state::<AppState>();
+    let (settings, accounts, active) = {
+        let store = st.store.lock().unwrap();
+        (store.settings.clone(), store.accounts.clone(), store.active.clone())
+    };
+    let now = std::time::Instant::now();
+    // visits that are over
+    let over: Vec<String> = {
+        let live = st.live.lock().unwrap();
+        live.patrol
+            .iter()
+            .filter(|(id, (t, chats))| {
+                let busy = live.waiters.values().any(|(a, _)| a == *id) || live.lru.contains(*id);
+                !busy && (now.duration_since(*t) >= PATROL_MAX || (*chats && now.duration_since(*t) >= PATROL_MIN))
+            })
+            .map(|(id, _)| id.clone())
+            .collect()
+    };
+    for id in over {
+        let (before, after) = {
+            let mut live = st.live.lock().unwrap();
+            live.patrol.remove(&id);
+            let after = live.unread.get(&id).copied().unwrap_or(0);
+            let before = live.patrol_seen.insert(id.clone(), (now, after)).map(|(_, n)| n);
+            (before, after)
+        };
+        if active.as_deref() != Some(id.as_str()) {
+            sleep(app, &id);
+        }
+        // more unread chats than at its last visit: announced like a message (not at the first visit, which
+        // would announce every old unread chat after a start)
+        if let (Some(before), Some(account)) = (before.filter(|b| after > *b), accounts.iter().find(|a| a.id == id)) {
+            st.live.lock().unwrap().attention.insert(id.clone());
+            if settings.notifications {
+                let n = after - before;
+                let _ = app.notification().builder().title(account.name.clone()).body(format!("Новых чатов с сообщениями: {n}")).show();
+            }
+        }
+        publish(app);
+    }
+    if !settings.sleep_enabled || !settings.patrol {
+        return;
+    }
+    if memory_load().is_some_and(|m| m >= PATROL_MEMORY) {
+        return;
+    }
+    // the next visits: the sleeping accounts visited longest ago (never visited first)
+    let mut next: Vec<(Option<std::time::Instant>, String)> = {
+        let live = st.live.lock().unwrap();
+        if live.patrol.len() >= PATROL_SLOTS {
+            return;
+        }
+        accounts
+            .iter()
+            .filter(|a| !live.lru.contains(&a.id) && !live.patrol.contains_key(&a.id) && Some(a.id.as_str()) != active.as_deref())
+            .filter(|a| !(a.shared && !a.wants_shared()))
+            .map(|a| (live.patrol_seen.get(&a.id).map(|(t, _)| *t), a.id.clone()))
+            .collect()
+    };
+    // once around is enough for now: an account is visited again after a pause of at least 3 minutes
+    next.retain(|(t, _)| t.is_none_or(|t| now.duration_since(t) >= std::time::Duration::from_secs(180)));
+    next.sort();
+    let free = PATROL_SLOTS - st.live.lock().unwrap().patrol.len();
+    for (_, id) in next.into_iter().take(free) {
+        let Some(account) = accounts.iter().find(|a| a.id == id) else { continue };
+        if app.get_webview(&label_of(&id)).is_some() {
+            continue;
+        }
+        st.live.lock().unwrap().patrol.insert(id.clone(), (now, false));
+        if let Err(e) = create_account_webview(app, account) {
+            diag(app, &id, &format!("patrol: could not wake ({e})"));
+            let mut live = st.live.lock().unwrap();
+            live.patrol.remove(&id);
+            let n = live.unread.get(&id).copied().unwrap_or(0);
+            live.patrol_seen.insert(id.clone(), (now, n));
+        }
+    }
+    layout(app);
+}
+
 /// Makes sure the account is loaded and marks it as just used; then puts accounts over the limit to sleep.
 fn wake(app: &AppHandle, id: &str) -> tauri::Result<()> {
     let account = {
@@ -455,6 +778,8 @@ fn wake(app: &AppHandle, id: &str) -> tauri::Result<()> {
         let mut live = st.live.lock().unwrap();
         live.lru.retain(|x| x != id);
         live.lru.push(id.to_string());
+        // opened during a patrol visit: from now on a normal awake account
+        live.patrol.remove(id);
     }
     enforce_sleep(app);
     Ok(())
@@ -495,10 +820,15 @@ fn sleep(app: &AppHandle, id: &str) {
     if let Some(wv) = app.get_webview(&label_of(id)) {
         let _ = wv.close();
     }
+    tauri_runtime_wry::set_webview_profile(&label_of(id), None);
     let st = app.state::<AppState>();
     let mut live = st.live.lock().unwrap();
     live.lru.retain(|x| x != id);
+    live.patrol.remove(id);
     live.loaded.remove(id);
+    live.low_mem.remove(id);
+    // its next page starts without the menus' data, so it gets it in full again
+    live.meta_sent.remove(id);
 }
 
 fn switch_to(app: &AppHandle, id: &str) -> Result<(), String> {
@@ -577,7 +907,10 @@ async fn add_account(app: AppHandle, name: String, color: String, proxy: Option<
         let id = store::new_id();
         let n = store.accounts.len() + 1;
         let name = if name.is_empty() { format!("Аккаунт {n}") } else { name };
-        store.accounts.push(Account { id: id.clone(), name, color, proxy, pinned: false });
+        let mut account = Account::new(id.clone(), name, color, proxy, false);
+        // a new account has no data yet: without a proxy it starts in the shared browser right away
+        account.shared = account.wants_shared();
+        store.accounts.push(account);
         id
     };
     save(&app);
@@ -611,12 +944,16 @@ async fn update_account(
         a.pinned = pinned;
         let changed = a.proxy != proxy;
         a.proxy = proxy;
-        changed
+        // with a proxy now (or none any more) it moves between the shared browser and one of its own at the
+        // next start of Hovi Space (store::prepare_profiles)
+        let moves = a.shared != a.wants_shared();
+        (changed, moves)
     };
+    let (proxy_changed, moves) = proxy_changed;
     save(&app);
     publish(&app);
     // WebView2 takes the proxy when the account's browser starts, so a running account keeps the old one
-    Ok(proxy_changed && app.get_webview(&label_of(&id)).is_some())
+    Ok(proxy_changed && (moves || app.get_webview(&label_of(&id)).is_some()))
 }
 
 #[tauri::command]
@@ -1216,17 +1553,71 @@ async fn acc_notify(app: AppHandle, webview: Webview, title: String, body: Strin
 async fn acc_chats(app: AppHandle, webview: Webview, chats: Vec<ChatRow>) {
     let Some(id) = id_of(webview.label()).map(str::to_string) else { return };
     let rows: Vec<ChatRow> = chats.into_iter().take(40).map(ChatRow::clean).collect();
+    let mut moved_ok = false;
     let changed = {
         let st = app.state::<AppState>();
         let known = st.store.lock().unwrap().accounts.iter().any(|a| a.id == id);
         let mut live = st.live.lock().unwrap();
-        known && live.chats.get(&id) != Some(&rows) && { live.chats.insert(id, rows); true }
+        if !rows.is_empty() && live.migrating.remove(&id) {
+            moved_ok = true;
+        }
+        if let Some(visit) = live.patrol.get_mut(&id) {
+            visit.1 |= !rows.is_empty();
+        }
+        known && live.chats.get(&id) != Some(&rows) && { live.chats.insert(id.clone(), rows); true }
     };
+    if moved_ok {
+        // its sign-in came along to the shared browser: the old folder can go
+        diag(&app, &id, "shared browser: still signed in, the old folder is deleted");
+        {
+            let st = app.state::<AppState>();
+            let mut store = st.store.lock().unwrap();
+            if !store.legacy_cleanup.contains(&id) {
+                store.legacy_cleanup.push(id.clone());
+            }
+        }
+        save(&app);
+        let app2 = app.clone();
+        std::thread::spawn(move || store::purge_deleted(&app2));
+    }
     // a page that loaded while "Все чаты" was open gets the same view as the others
     if app.state::<AppState>().live.lock().unwrap().panel {
         let _ = webview.eval(focus_js(true));
     }
     if changed {
+        publish(&app);
+    }
+}
+
+/// The page an account shows a while after it loaded (inject.js), to see whether a sign-in moved to the shared
+/// browser is still there. On Gem Space's sign-in page it is not: the account goes back to its own browser,
+/// where its sign-in still is, and stays there.
+#[tauri::command]
+async fn acc_page(app: AppHandle, webview: Webview, path: String) {
+    let Some(id) = id_of(webview.label()).map(str::to_string) else { return };
+    if !path.starts_with("/login") {
+        return;
+    }
+    let st = app.state::<AppState>();
+    if !st.live.lock().unwrap().migrating.remove(&id) {
+        return;
+    }
+    diag(&app, &id, "shared browser: the sign-in did not come along, back to its own browser");
+    {
+        let mut store = st.store.lock().unwrap();
+        let Some(a) = store.accounts.iter_mut().find(|a| a.id == id) else { return };
+        a.shared = false;
+        a.own_browser = true;
+        if !store.profile_cleanup.contains(&id) {
+            store.profile_cleanup.push(id.clone());
+        }
+    }
+    save(&app);
+    sleep(&app, &id);
+    let active = st.store.lock().unwrap().active.clone();
+    if active.as_deref() == Some(id.as_str()) {
+        let _ = switch_to(&app, &id);
+    } else {
         publish(&app);
     }
 }
@@ -1318,6 +1709,7 @@ pub fn run() {
             acc_sent,
             acc_log,
             acc_meta,
+            acc_page,
             login_report,
             set_chat_meta,
             set_templates,
@@ -1328,12 +1720,24 @@ pub fn run() {
             let store = Store::load(&handle);
             app.manage(AppState { store: Mutex::new(store), live: Mutex::new(Live::default()) });
             store::purge_deleted(&handle);
+            let (moved, moves) = store::prepare_profiles(&handle);
+            for (id, line) in moves {
+                diag(&handle, &id, &line);
+            }
+            handle.state::<AppState>().live.lock().unwrap().migrating.extend(moved);
             update::start_checks(handle.clone());
             // reminders of chats: checked every 15 seconds while Hovi Space runs, and at once after a start
             let app_remind = handle.clone();
             std::thread::spawn(move || loop {
                 std::thread::sleep(std::time::Duration::from_secs(15));
                 remind_due(&app_remind);
+                memory_guard(&app_remind);
+            });
+            // the patrol of sleeping accounts, every 5 seconds; it creates webviews, so not on the main thread
+            let app_patrol = handle.clone();
+            std::thread::spawn(move || loop {
+                std::thread::sleep(std::time::Duration::from_secs(5));
+                patrol(&app_patrol);
             });
 
             let window = WindowBuilder::new(app, MAIN)
@@ -1432,7 +1836,18 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::unread_from_title;
+    use super::{recovery_for, unread_from_title, Recovery};
+
+    #[test]
+    fn page_failures() {
+        assert_eq!(recovery_for(1, 1), Recovery::Reload);
+        assert_eq!(recovery_for(2, 3), Recovery::Reload);
+        assert_eq!(recovery_for(0, 1), Recovery::Restart);
+        assert_eq!(recovery_for(1, 4), Recovery::Sleep);
+        assert_eq!(recovery_for(0, 4), Recovery::Sleep);
+        assert_eq!(recovery_for(6, 9), Recovery::Nothing);
+        assert_eq!(recovery_for(3, 1), Recovery::Nothing);
+    }
 
     #[test]
     fn unread_counts() {

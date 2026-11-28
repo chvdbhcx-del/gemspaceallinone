@@ -601,9 +601,10 @@ async function openOverlay(kind, a) {
       </div>
       <div class="set-label">Память</div>
       <div class="af-card set-card">
-        ${row(MOON_PATH, 's-sleep', s.sleep_enabled, 'Спящий режим', 'Давно не открытые аккаунты выгружаются и не присылают уведомлений')}
+        ${row(MOON_PATH, 's-sleep', s.sleep_enabled, 'Спящий режим', 'Давно не открытые аккаунты выгружаются из памяти')}
         <div class="set-row" id="s-max-row"><span class="af-ic">${icon(LAYERS_PATH)}</span><span class="af-txt"><b>Загружено одновременно</b><small>Открытый и «Не усыплять» не считаются</small></span>
           <span class="stepper"><button type="button" data-d="-1" aria-label="Меньше">−</button><input type="number" id="s-max" min="1" max="60" value="${s.max_awake}"><button type="button" data-d="1" aria-label="Больше">+</button></span></div>
+        ${row(REFRESH_PATH, 's-patrol', s.patrol, 'Проверять спящие', 'По очереди ненадолго будит их, чтобы обновить счётчики и сообщить о новых сообщениях')}
       </div>
       <div class="set-label">Окно</div>
       <div class="af-card set-card">
@@ -647,7 +648,10 @@ async function openOverlay(kind, a) {
     });
     requestAnimationFrame(movePill);
     const max = $('#s-max');
-    const syncMax = () => $('#s-max-row').classList.toggle('off', !$('#s-sleep').checked);
+    const syncMax = () => {
+      $('#s-max-row').classList.toggle('off', !$('#s-sleep').checked);
+      $('#s-patrol').closest('.set-row').classList.toggle('off', !$('#s-sleep').checked);
+    };
     $('#s-sleep').addEventListener('change', syncMax); syncMax();
     body.querySelectorAll('.stepper button').forEach((btn) => {
       btn.onclick = () => {
@@ -662,6 +666,7 @@ async function openOverlay(kind, a) {
         notify_preview: $('#s-preview').checked,
         sleep_enabled: $('#s-sleep').checked,
         max_awake: Math.max(1, Math.min(60, parseInt($('#s-max').value, 10) || 8)),
+        patrol: $('#s-patrol').checked,
         close_to_tray: $('#s-tray').checked,
         ui_scale: Number(($('#s-scale .on') || {}).dataset?.v) || 100,
       };
