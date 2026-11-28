@@ -143,7 +143,6 @@ use std::{
 pub type WebviewId = u32;
 type IpcHandler = dyn Fn(Request<String>) + 'static;
 
-#[cfg(not(debug_assertions))]
 // Hovi Space patch: WebView2 profiles. Webviews that share a data directory share one browser (one browser,
 // GPU and network process for all of them); a profile per webview keeps their cookies and storage apart.
 // Tauri itself has no setting for the profile, so the app names it here before it creates the webview.
@@ -175,6 +174,7 @@ fn webview_profile(label: &str) -> Option<String> {
     .cloned()
 }
 
+#[cfg(not(debug_assertions))]
 mod dialog;
 mod monitor;
 #[cfg(any(
